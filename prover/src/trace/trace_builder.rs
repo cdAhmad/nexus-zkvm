@@ -141,7 +141,7 @@ impl TracesBuilder {
 /// Finalized main trace that stores columns in (bit reversed) circle domain order.
 #[derive(Debug, Clone)]
 pub struct FinalizedTraces {
-    cols: Vec<BaseColumn>,
+    pub cols: Vec<BaseColumn>,
     log_size: u32,
 }
 

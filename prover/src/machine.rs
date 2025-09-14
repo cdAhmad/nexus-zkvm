@@ -471,7 +471,9 @@ impl<C: MachineChip + Sync> Machine<C> {
             Self::max_log_size(&[num_steps, program_len]).max(PreprocessedTraces::MIN_LOG_SIZE);
 
         let extensions_config = ExtensionsConfig::from(extensions);
-        let extensions_vec: Vec<_> = BASE_EXTENSIONS.iter().chain(extensions).collect();
+        // 使用 Vec<&ExtensionComponent>，避免多余的 clone
+        let extensions_vec: Vec<&ExtensionComponent> =
+            BASE_EXTENSIONS.iter().chain(extensions).collect();
 
         println!(
             "Fill columns of the preprocessed trace. start {} {num_steps} {program_len} {program_len}",
@@ -479,10 +481,6 @@ impl<C: MachineChip + Sync> Machine<C> {
         );
         // Fill columns of the preprocessed trace.
         let preprocessed_trace = PreprocessedTraces::new(log_size);
-        println!(
-            "Fill columns of the preprocessed trace. end {}",
-            now.elapsed().as_millis()
-        );
         // Fill columns of the original trace.
         let mut prover_traces = TracesBuilder::new(log_size);
         let program_trace_ref = ProgramTraceRef {
@@ -507,21 +505,19 @@ impl<C: MachineChip + Sync> Machine<C> {
         let finalized_trace = prover_traces.finalize();
         let finalized_program_trace = program_traces.finalize();
 
-        let all_log_sizes: Vec<u32> = std::iter::once(log_size)
-            .chain(
-                extensions_vec
-                    .iter()
-                    .map(|ext| ext.compute_log_size(&prover_side_note)),
-            )
-            .collect();
-
-        println!(
-            "Fill columns of the original trace. end {}",
-            now.elapsed().as_millis()
+        //耗时低 无需优化 ---
+        let mut all_log_sizes = Vec::with_capacity(1 + extensions_vec.len());
+        all_log_sizes.push(log_size);
+        all_log_sizes.extend(
+            extensions_vec
+                .iter()
+                .map(|ext| ext.compute_log_size(&prover_side_note)),
         );
+        //耗时低 无需优化 ---
+     
         let config = PcsConfig::default();
 
-        // Precompute twiddles.
+        // Precompute twiddles. time long 50
         let twiddles = SimdBackend::precompute_twiddles(
             CanonicCoset::new(
                 log_size.max(all_log_sizes.iter().copied().max().unwrap_or(0))
@@ -544,8 +540,10 @@ impl<C: MachineChip + Sync> Machine<C> {
             prover_channel.mix_u64(*log_size as u64);
         });
 
+        // —— Tree builder: preprocessed trace & extensions
+        let tree_builder_now = Instant::now();
         let mut tree_builder = commitment_scheme.tree_builder();
-        let _preprocessed_trace_location = tree_builder.extend_evals(
+        tree_builder.extend_evals(
             preprocessed_trace
                 .clone()
                 .into_circle_evaluation()
@@ -555,41 +553,58 @@ impl<C: MachineChip + Sync> Machine<C> {
 
         let extension_traces: Vec<ComponentTrace> = extensions_vec
             .iter()
-            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .zip(all_log_sizes.iter().skip(1))
             .map(|(ext, log_size)| {
                 ext.generate_component_trace(*log_size, program_trace_ref, &mut prover_side_note)
             })
             .collect();
-        println!("Setup protocol. end {}", now.elapsed().as_millis());
-        // Handle extensions for the preprocessed trace
+        println!(
+            "Setup protocol. end {} extension_traces {}",
+            tree_builder_now.elapsed().as_millis(),
+            extension_traces.len()
+        );
+        // Handle extensions for the preprocessed trace time long 16
         for extension_trace in &extension_traces {
             tree_builder.extend_evals(extension_trace.to_circle_evaluation(PREPROCESSED_TRACE_IDX));
         }
         tree_builder.commit(prover_channel);
+          println!(
+            "Setup protocol. commit end {} extension_traces {}",
+            tree_builder_now.elapsed().as_millis(),
+            extension_traces.len()
+        );
 
+        // —— Tree builder: main trace & extensions
         let mut tree_builder = commitment_scheme.tree_builder();
-        let _main_trace_location =
-            tree_builder.extend_evals(finalized_trace.clone().into_circle_evaluation());
+        tree_builder.extend_evals(finalized_trace.clone().into_circle_evaluation());
         println!(
-            "Handle extensions for the preprocessed trace end {}",
-            now.elapsed().as_millis()
+            "Handle extensions for the preprocessed trace end {} finalized_trace cols size {}",
+            now.elapsed().as_millis(),finalized_trace.cols.len()
         );
         // Handle extensions for the main trace
         for extension_trace in &extension_traces {
             tree_builder.extend_evals(extension_trace.to_circle_evaluation(ORIGINAL_TRACE_IDX));
         }
+         println!(
+            "Handle tree_builder before {}",
+            now.elapsed().as_millis()
+        );
         tree_builder.commit(prover_channel);
-
+        // —— Lookup elements
         let mut lookup_elements = AllLookupElements::default();
         C::draw_lookup_elements(&mut lookup_elements, prover_channel, &extensions_config);
-
+          println!(
+            "Handle Interaction trace {}",
+            now.elapsed().as_millis()
+        );
+        // —— Interaction trace
         let (interaction_trace, claimed_sum) = generate_interaction_trace::<C>(
             &finalized_trace,
             &preprocessed_trace,
             &finalized_program_trace,
             &lookup_elements,
         );
-
+        // —— Tree builder: interaction trace & extensions
         let mut tree_builder = commitment_scheme.tree_builder();
         let _interaction_trace_location = tree_builder.extend_evals(interaction_trace);
         println!(
@@ -597,6 +612,7 @@ impl<C: MachineChip + Sync> Machine<C> {
             now.elapsed().as_millis()
         );
         // Handle extensions for the interaction trace
+        // 并行处理 extension interaction trace
         let mut all_claimed_sum = vec![claimed_sum];
         for (ext, extension_trace) in extensions_vec.iter().zip(extension_traces) {
             let (interaction_trace, claimed_sum) = ext.generate_interaction_trace(
@@ -607,18 +623,21 @@ impl<C: MachineChip + Sync> Machine<C> {
             all_claimed_sum.push(claimed_sum);
             tree_builder.extend_evals(interaction_trace);
         }
-        tree_builder.commit(prover_channel);
 
+        tree_builder.commit(prover_channel);
+            println!("Handle    tree_builder.commit  {}  ", now.elapsed().as_millis(),);
+        // —— 组件构造
         let tree_span_provider = &mut TraceLocationAllocator::default();
         let main_component = MachineComponent::new(
             tree_span_provider,
             MachineEval::<C>::new(log_size, lookup_elements.clone(), extensions_config.clone()),
             claimed_sum,
         );
+        println!("Handle main_component end  {}  ", now.elapsed().as_millis(),);
         let ext_components: Vec<Box<dyn ComponentProver<SimdBackend>>> = extensions_vec
             .iter()
-            .zip(all_claimed_sum.get(1..).unwrap_or_default())
-            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .zip(all_claimed_sum.iter().skip(1))
+            .zip(all_log_sizes.iter().skip(1))
             .map(|((ext, claimed_sum), log_size)| {
                 ext.to_component_prover(
                     tree_span_provider,
@@ -628,9 +647,13 @@ impl<C: MachineChip + Sync> Machine<C> {
                 )
             })
             .collect();
+        println!("Handle ext_components {}", now.elapsed().as_millis());
         let mut components_ref: Vec<&dyn ComponentProver<SimdBackend>> =
             ext_components.iter().map(|c| &**c).collect();
+        println!("Handle insert before {}", now.elapsed().as_millis());
         components_ref.insert(0, &main_component);
+        println!("Handle prove before {}", now.elapsed().as_millis());
+
         let proof = prove::<SimdBackend, Blake2sMerkleChannel>(
             &components_ref,
             prover_channel,
