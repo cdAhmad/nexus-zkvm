@@ -29,6 +29,54 @@ pub fn main() {
         }
         
     }
+    println!("----------");
+     match prov2(0) {
+        Ok(new_hash)=>{
+                 let hash= "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
+             if new_hash ==hash {
+                 println!("equals");
+             }else{
+                println!("not equalas hash {hash}\n new_hash {new_hash}");
+             }
+
+        }
+        Err(e)=>{
+
+        }
+        
+    }
+   println!("---------- prove 0");
+     match prov2(1) {
+        Ok(new_hash)=>{
+                 let hash= "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
+             if new_hash ==hash {
+                 println!("equals");
+             }else{
+                println!("not equalas hash {hash}\n new_hash {new_hash}");
+             }
+
+        }
+        Err(e)=>{
+
+        }
+        
+    }
+        println!("---------- prove 1");
+      match prov() {
+        Ok(new_hash)=>{
+                 let hash= "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
+             if new_hash ==hash {
+                 println!("equals");
+             }else{
+                println!("not equalas hash {hash}\n new_hash {new_hash}");
+             }
+
+        }
+        Err(e)=>{
+
+        }
+        
+    }
 }
 
 fn prov() -> Result<String, TestError> {
@@ -49,6 +97,26 @@ fn prov() -> Result<String, TestError> {
             );
     Ok(generate_proof_hash(&proof))
 }
+
+fn prov2(index:usize) -> Result<String, TestError> {
+    let now = std::time::Instant::now();
+    let inputs = &(5000u32, 3791366113u32, 4014011445u32);
+    let prover = create_fib_prover()?;
+    let (view, proof) = prover
+        .p2::<(), (u32, u32, u32)>(&(), inputs,index)
+        .map_err(|e| {
+            TestError::new(format!(
+                "Failed to generate proof for inputs {:?}: {}",
+                inputs, e
+            ))
+        })?;
+     println!(
+                "{index} prove_with_input {} milliseconds",
+                now.elapsed().as_millis()
+            );
+    Ok(generate_proof_hash(&proof))
+}
+
 pub fn generate_proof_hash(proof: &Proof) -> String {
     let proof_bytes = postcard::to_allocvec(proof).expect("Failed to serialize proof");
     format!("{:x}", Keccak256::digest(&proof_bytes))

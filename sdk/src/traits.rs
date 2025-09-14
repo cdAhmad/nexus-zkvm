@@ -271,6 +271,15 @@ pub trait Prover: Sized {
         private_input: &S,
         public_input: &T,
     ) -> Result<(Self::View, Self::Proof), <Self as Prover>::Error>;
+
+
+
+        fn p2<S: Serialize + Sized, T: Serialize + DeserializeOwned + Sized>(
+        self,
+        private_input: &S,
+        public_input: &T,
+        index:usize
+    ) -> Result<(Self::View, Self::Proof), <Self as Prover>::Error>;
 }
 
 /// An object that can be configured with necessary parameters for proving and verification.

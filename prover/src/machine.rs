@@ -41,6 +41,8 @@ use crate::{
     traits::generate_interaction_trace,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Instant;
 /// Base component tuple for constraining virtual machine execution based on RV32I ISA.
 pub type BaseComponent = (
     CpuChip,
@@ -276,6 +278,368 @@ impl<C: MachineChip + Sync> Machine<C> {
             prover_channel,
             commitment_scheme,
         )?;
+
+        Ok(Proof {
+            stark_proof: proof,
+            claimed_sum: all_claimed_sum,
+            log_size: all_log_sizes,
+        })
+    }
+
+    pub fn prove2(trace: &impl Trace, view: &View, index: usize) -> Result<Proof, ProvingError> {
+        if index == 0 {
+            Self::p2(&[], trace, view)
+        } else if index == 1 {
+            Self::p3(&[], trace, view)
+        } else {
+            Self::prove_with_extensions(&[], trace, view)
+        }
+    }
+
+    pub fn p2(
+        extensions: &[ExtensionComponent],
+        trace: &impl Trace,
+        view: &View,
+    ) -> Result<Proof, ProvingError> {
+        let num_steps = trace.get_num_steps();
+        let program_len = view.get_program_memory().program.len();
+        let log_size =
+            Self::max_log_size(&[num_steps, program_len]).max(PreprocessedTraces::MIN_LOG_SIZE);
+
+        let extensions_config = ExtensionsConfig::from(extensions);
+        let extensions_vec: Vec<_> = BASE_EXTENSIONS.iter().chain(extensions).collect();
+
+        // Fill columns of the preprocessed trace.
+        let preprocessed_trace = PreprocessedTraces::new(log_size);
+
+        // Fill columns of the original trace.
+        let mut prover_traces = TracesBuilder::new(log_size);
+        let program_trace_ref = ProgramTraceRef {
+            program_memory: view.get_program_memory(),
+            init_memory: view.get_initial_memory(),
+            exit_code: view.get_exit_code(),
+            public_output: view.get_public_output(),
+        };
+        let program_traces = ProgramTracesBuilder::new(log_size, program_trace_ref);
+        let mut prover_side_note = SideNote::new(&program_traces, view);
+        let program_steps = iter_program_steps(trace, prover_traces.num_rows());
+        for (row_idx, program_step) in program_steps.enumerate() {
+            C::fill_main_trace(
+                &mut prover_traces,
+                row_idx,
+                &program_step,
+                &mut prover_side_note,
+                &extensions_config,
+            );
+        }
+
+        let finalized_trace = prover_traces.finalize();
+        let finalized_program_trace = program_traces.finalize();
+
+        let all_log_sizes: Vec<u32> = std::iter::once(log_size)
+            .chain(
+                extensions_vec
+                    .iter()
+                    .map(|ext| ext.compute_log_size(&prover_side_note)),
+            )
+            .collect();
+
+        let config = PcsConfig::default();
+        // Precompute twiddles.
+        let twiddles = SimdBackend::precompute_twiddles(
+            CanonicCoset::new(
+                log_size.max(all_log_sizes.iter().copied().max().unwrap_or(0))
+                    + LOG_CONSTRAINT_DEGREE
+                    + config.fri_config.log_blowup_factor,
+            )
+            .circle_domain()
+            .half_coset,
+        );
+
+        // Setup protocol.
+        let prover_channel = &mut Blake2sChannel::default();
+        for byte in view.view_associated_data().unwrap_or_default() {
+            prover_channel.mix_u64(byte.into());
+        }
+
+        let mut commitment_scheme =
+            CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+        all_log_sizes.iter().for_each(|log_size| {
+            prover_channel.mix_u64(*log_size as u64);
+        });
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _preprocessed_trace_location = tree_builder.extend_evals(
+            preprocessed_trace
+                .clone()
+                .into_circle_evaluation()
+                .into_iter()
+                .chain(finalized_program_trace.clone().into_circle_evaluation()),
+        );
+
+        let extension_traces: Vec<ComponentTrace> = extensions_vec
+            .iter()
+            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .map(|(ext, log_size)| {
+                ext.generate_component_trace(*log_size, program_trace_ref, &mut prover_side_note)
+            })
+            .collect();
+        // Handle extensions for the preprocessed trace
+        for extension_trace in &extension_traces {
+            tree_builder.extend_evals(extension_trace.to_circle_evaluation(PREPROCESSED_TRACE_IDX));
+        }
+        tree_builder.commit(prover_channel);
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _main_trace_location =
+            tree_builder.extend_evals(finalized_trace.clone().into_circle_evaluation());
+        // Handle extensions for the main trace
+        for extension_trace in &extension_traces {
+            tree_builder.extend_evals(extension_trace.to_circle_evaluation(ORIGINAL_TRACE_IDX));
+        }
+        tree_builder.commit(prover_channel);
+
+        let mut lookup_elements = AllLookupElements::default();
+        C::draw_lookup_elements(&mut lookup_elements, prover_channel, &extensions_config);
+
+        let (interaction_trace, claimed_sum) = generate_interaction_trace::<C>(
+            &finalized_trace,
+            &preprocessed_trace,
+            &finalized_program_trace,
+            &lookup_elements,
+        );
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _interaction_trace_location = tree_builder.extend_evals(interaction_trace);
+        // Handle extensions for the interaction trace
+        let mut all_claimed_sum = vec![claimed_sum];
+        for (ext, extension_trace) in extensions_vec.iter().zip(extension_traces) {
+            let (interaction_trace, claimed_sum) = ext.generate_interaction_trace(
+                extension_trace,
+                &prover_side_note,
+                &lookup_elements,
+            );
+            all_claimed_sum.push(claimed_sum);
+            tree_builder.extend_evals(interaction_trace);
+        }
+        tree_builder.commit(prover_channel);
+
+        let tree_span_provider = &mut TraceLocationAllocator::default();
+        let main_component = MachineComponent::new(
+            tree_span_provider,
+            MachineEval::<C>::new(log_size, lookup_elements.clone(), extensions_config.clone()),
+            claimed_sum,
+        );
+        let ext_components: Vec<Box<dyn ComponentProver<SimdBackend>>> = extensions_vec
+            .iter()
+            .zip(all_claimed_sum.get(1..).unwrap_or_default())
+            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .map(|((ext, claimed_sum), log_size)| {
+                ext.to_component_prover(
+                    tree_span_provider,
+                    &lookup_elements,
+                    *log_size,
+                    *claimed_sum,
+                )
+            })
+            .collect();
+        let mut components_ref: Vec<&dyn ComponentProver<SimdBackend>> =
+            ext_components.iter().map(|c| &**c).collect();
+        components_ref.insert(0, &main_component);
+        let proof = prove::<SimdBackend, Blake2sMerkleChannel>(
+            &components_ref,
+            prover_channel,
+            commitment_scheme,
+        )?;
+
+        Ok(Proof {
+            stark_proof: proof,
+            claimed_sum: all_claimed_sum,
+            log_size: all_log_sizes,
+        })
+    }
+
+    pub fn p3(
+        extensions: &[ExtensionComponent],
+        trace: &impl Trace,
+        view: &View,
+    ) -> Result<Proof, ProvingError> {
+        let now = Instant::now();
+        let num_steps = trace.get_num_steps();
+        let program_len = view.get_program_memory().program.len();
+        let log_size =
+            Self::max_log_size(&[num_steps, program_len]).max(PreprocessedTraces::MIN_LOG_SIZE);
+
+        let extensions_config = ExtensionsConfig::from(extensions);
+        let extensions_vec: Vec<_> = BASE_EXTENSIONS.iter().chain(extensions).collect();
+
+        println!(
+            "Fill columns of the preprocessed trace. start {} {num_steps} {program_len} {program_len}",
+            now.elapsed().as_millis()
+        );
+        // Fill columns of the preprocessed trace.
+        let preprocessed_trace = PreprocessedTraces::new(log_size);
+        println!(
+            "Fill columns of the preprocessed trace. end {}",
+            now.elapsed().as_millis()
+        );
+        // Fill columns of the original trace.
+        let mut prover_traces = TracesBuilder::new(log_size);
+        let program_trace_ref = ProgramTraceRef {
+            program_memory: view.get_program_memory(),
+            init_memory: view.get_initial_memory(),
+            exit_code: view.get_exit_code(),
+            public_output: view.get_public_output(),
+        };
+        let program_traces = ProgramTracesBuilder::new(log_size, program_trace_ref);
+        let mut prover_side_note = SideNote::new(&program_traces, view);
+        let program_steps = iter_program_steps(trace, prover_traces.num_rows());
+        for (row_idx, program_step) in program_steps.enumerate() {
+            C::fill_main_trace(
+                &mut prover_traces,
+                row_idx,
+                &program_step,
+                &mut prover_side_note,
+                &extensions_config,
+            );
+        }
+
+        let finalized_trace = prover_traces.finalize();
+        let finalized_program_trace = program_traces.finalize();
+
+        let all_log_sizes: Vec<u32> = std::iter::once(log_size)
+            .chain(
+                extensions_vec
+                    .iter()
+                    .map(|ext| ext.compute_log_size(&prover_side_note)),
+            )
+            .collect();
+
+        println!(
+            "Fill columns of the original trace. end {}",
+            now.elapsed().as_millis()
+        );
+        let config = PcsConfig::default();
+
+        // Precompute twiddles.
+        let twiddles = SimdBackend::precompute_twiddles(
+            CanonicCoset::new(
+                log_size.max(all_log_sizes.iter().copied().max().unwrap_or(0))
+                    + LOG_CONSTRAINT_DEGREE
+                    + config.fri_config.log_blowup_factor,
+            )
+            .circle_domain()
+            .half_coset,
+        );
+        println!("Precompute twiddles. end {}", now.elapsed().as_millis());
+        // Setup protocol.
+        let prover_channel = &mut Blake2sChannel::default();
+        for byte in view.view_associated_data().unwrap_or_default() {
+            prover_channel.mix_u64(byte.into());
+        }
+
+        let mut commitment_scheme =
+            CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(config, &twiddles);
+        all_log_sizes.iter().for_each(|log_size| {
+            prover_channel.mix_u64(*log_size as u64);
+        });
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _preprocessed_trace_location = tree_builder.extend_evals(
+            preprocessed_trace
+                .clone()
+                .into_circle_evaluation()
+                .into_iter()
+                .chain(finalized_program_trace.clone().into_circle_evaluation()),
+        );
+
+        let extension_traces: Vec<ComponentTrace> = extensions_vec
+            .iter()
+            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .map(|(ext, log_size)| {
+                ext.generate_component_trace(*log_size, program_trace_ref, &mut prover_side_note)
+            })
+            .collect();
+        println!("Setup protocol. end {}", now.elapsed().as_millis());
+        // Handle extensions for the preprocessed trace
+        for extension_trace in &extension_traces {
+            tree_builder.extend_evals(extension_trace.to_circle_evaluation(PREPROCESSED_TRACE_IDX));
+        }
+        tree_builder.commit(prover_channel);
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _main_trace_location =
+            tree_builder.extend_evals(finalized_trace.clone().into_circle_evaluation());
+        println!(
+            "Handle extensions for the preprocessed trace end {}",
+            now.elapsed().as_millis()
+        );
+        // Handle extensions for the main trace
+        for extension_trace in &extension_traces {
+            tree_builder.extend_evals(extension_trace.to_circle_evaluation(ORIGINAL_TRACE_IDX));
+        }
+        tree_builder.commit(prover_channel);
+
+        let mut lookup_elements = AllLookupElements::default();
+        C::draw_lookup_elements(&mut lookup_elements, prover_channel, &extensions_config);
+
+        let (interaction_trace, claimed_sum) = generate_interaction_trace::<C>(
+            &finalized_trace,
+            &preprocessed_trace,
+            &finalized_program_trace,
+            &lookup_elements,
+        );
+
+        let mut tree_builder = commitment_scheme.tree_builder();
+        let _interaction_trace_location = tree_builder.extend_evals(interaction_trace);
+        println!(
+            "Handle extensions for the main trace end {}",
+            now.elapsed().as_millis()
+        );
+        // Handle extensions for the interaction trace
+        let mut all_claimed_sum = vec![claimed_sum];
+        for (ext, extension_trace) in extensions_vec.iter().zip(extension_traces) {
+            let (interaction_trace, claimed_sum) = ext.generate_interaction_trace(
+                extension_trace,
+                &prover_side_note,
+                &lookup_elements,
+            );
+            all_claimed_sum.push(claimed_sum);
+            tree_builder.extend_evals(interaction_trace);
+        }
+        tree_builder.commit(prover_channel);
+
+        let tree_span_provider = &mut TraceLocationAllocator::default();
+        let main_component = MachineComponent::new(
+            tree_span_provider,
+            MachineEval::<C>::new(log_size, lookup_elements.clone(), extensions_config.clone()),
+            claimed_sum,
+        );
+        let ext_components: Vec<Box<dyn ComponentProver<SimdBackend>>> = extensions_vec
+            .iter()
+            .zip(all_claimed_sum.get(1..).unwrap_or_default())
+            .zip(all_log_sizes.get(1..).unwrap_or_default())
+            .map(|((ext, claimed_sum), log_size)| {
+                ext.to_component_prover(
+                    tree_span_provider,
+                    &lookup_elements,
+                    *log_size,
+                    *claimed_sum,
+                )
+            })
+            .collect();
+        let mut components_ref: Vec<&dyn ComponentProver<SimdBackend>> =
+            ext_components.iter().map(|c| &**c).collect();
+        components_ref.insert(0, &main_component);
+        let proof = prove::<SimdBackend, Blake2sMerkleChannel>(
+            &components_ref,
+            prover_channel,
+            commitment_scheme,
+        )?;
+        println!(
+            "Handle extensions for the interaction trace end {}",
+            now.elapsed().as_millis()
+        );
 
         Ok(Proof {
             stark_proof: proof,

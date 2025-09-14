@@ -28,6 +28,14 @@ pub fn prove(
     machine::Machine::<machine::BaseComponent>::prove(trace, view)
 }
 
+pub fn prove2(
+    trace: &impl nexus_vm::trace::Trace,
+    view: &nexus_vm::emulator::View,
+    index:usize
+) -> Result<Proof, ProvingError> {
+    machine::Machine::<machine::BaseComponent>::prove2(trace, view,index)
+}
+
 pub fn verify(proof: Proof, view: &nexus_vm::emulator::View) -> Result<(), VerificationError> {
     machine::Machine::<machine::BaseComponent>::verify(
         proof,
