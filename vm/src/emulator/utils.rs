@@ -1,6 +1,6 @@
 use crate::elf::ElfFile;
 use crate::memory::MemorySegmentImage;
-use crate::riscv::{decode_instruction, BasicBlock};
+use crate::riscv::{ decode_instruction, BasicBlock };
 
 pub use super::executor::Emulator;
 pub use super::layout::LinearMemoryLayout;
@@ -8,7 +8,8 @@ use super::registry;
 
 use nexus_common::constants::WORD_SIZE;
 use nexus_common::memory::MemoryRecords;
-use nexus_common::riscv::{opcode::BuiltinOpcode, Opcode};
+use nexus_common::riscv::{ opcode::BuiltinOpcode, Opcode };
+use serde::Serialize;
 
 pub type MemoryTranscript = Vec<MemoryRecords>;
 
@@ -23,7 +24,7 @@ pub trait IOEntry {
 }
 
 macro_rules! io {
-    ( $id:ident ) => {
+    ($id:ident) => {
         impl IOEntry for $id {
             fn new(address: u32, value: u8) -> Self {
                 Self { address, value }
@@ -96,12 +97,11 @@ pub fn slice_into_io_entries<T: IOEntry>(base: u32, values: &[u8]) -> Vec<T> {
 pub fn elf_into_program_info(elf: &ElfFile, layout: &LinearMemoryLayout) -> ProgramInfo {
     ProgramInfo {
         initial_pc: layout.program_start(),
-        program: elf
-            .instructions
+        program: elf.instructions
             .iter()
             .enumerate()
             .map(|(pc_offset, instruction)| ProgramMemoryEntry {
-                pc: layout.program_start() + (pc_offset * WORD_SIZE) as u32,
+                pc: layout.program_start() + ((pc_offset * WORD_SIZE) as u32),
                 instruction_word: *instruction,
             })
             .collect(),
@@ -109,7 +109,7 @@ pub fn elf_into_program_info(elf: &ElfFile, layout: &LinearMemoryLayout) -> Prog
 }
 
 // One entry per byte because RO memory can be accessed bytewise
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq,Serialize, Eq)]
 pub struct MemoryInitializationEntry {
     pub address: u32,
     pub value: u8,
@@ -124,7 +124,7 @@ impl MemoryInitializationEntry {
 }
 
 // One entry per byte because WO memory can be accessed bytewise
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone,Serialize,PartialEq, Eq)]
 pub struct PublicOutputEntry {
     pub address: u32,
     pub value: u8,
@@ -139,13 +139,13 @@ impl PublicOutputEntry {
 }
 
 // One entry per instruction because program memory is always accessed instruction-wise
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 pub struct ProgramMemoryEntry {
     pub pc: u32,
     pub instruction_word: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ProgramInfo {
     // The program counter where the execution starts
     pub initial_pc: u32,
@@ -172,7 +172,7 @@ impl BasicBlockEntry {
     pub fn new(start: u32, block: BasicBlock) -> Self {
         BasicBlockEntry {
             start,
-            end: start + (block.len() * WORD_SIZE) as u32,
+            end: start + ((block.len() * WORD_SIZE) as u32),
             block,
         }
     }
@@ -219,7 +219,7 @@ pub trait InternalView {
     fn add_logs(&mut self, emulator: &impl Emulator);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct View {
     pub(crate) memory_layout: Option<LinearMemoryLayout>,
     pub(crate) debug_logs: Vec<Vec<u8>>,
@@ -248,7 +248,7 @@ impl View {
         tracked_ram_size: usize,
         exit_code: &Vec<PublicOutputEntry>,
         output_memory: &Vec<PublicOutputEntry>,
-        associated_data: &Vec<u8>,
+        associated_data: &Vec<u8>
     ) -> Self {
         Self {
             memory_layout: memory_layout.to_owned(),
@@ -269,30 +269,30 @@ impl View {
         // we need to carefully skip the input length
         self.memory_layout.map(|layout| {
             io_entries_into_vec(
-                layout.public_input_start() + WORD_SIZE as u32,
+                layout.public_input_start() + (WORD_SIZE as u32),
                 self.input_memory
                     .iter()
                     .filter(|entry: &&MemoryInitializationEntry| {
-                        layout.public_input_start() + WORD_SIZE as u32 <= entry.address
-                            && entry.address < layout.public_input_end()
+                        layout.public_input_start() + (WORD_SIZE as u32) <= entry.address &&
+                            entry.address < layout.public_input_end()
                     })
                     .copied()
                     .collect::<Vec<_>>()
-                    .as_slice(),
+                    .as_slice()
             )
         })
     }
 
     /// Return the raw bytes of the exit code, if any.
     pub fn view_exit_code(&self) -> Option<Vec<u8>> {
-        self.memory_layout
-            .map(|layout| io_entries_into_vec(layout.exit_code(), &self.exit_code))
+        self.memory_layout.map(|layout| io_entries_into_vec(layout.exit_code(), &self.exit_code))
     }
 
     /// Return the raw bytes of the public output, if any.
     pub fn view_public_output(&self) -> Option<Vec<u8>> {
-        self.memory_layout
-            .map(|layout| io_entries_into_vec(layout.public_output_start(), &self.output_memory))
+        self.memory_layout.map(|layout|
+            io_entries_into_vec(layout.public_output_start(), &self.output_memory)
+        )
     }
 
     /// Return the number of all addresses under RAM memory checking.
@@ -302,11 +302,7 @@ impl View {
 
     /// Return the raw bytes of the associated data, if any.
     pub fn view_associated_data(&self) -> Option<Vec<u8>> {
-        if self.memory_layout.is_some() {
-            Some(self.associated_data.clone())
-        } else {
-            None
-        }
+        if self.memory_layout.is_some() { Some(self.associated_data.clone()) } else { None }
     }
 
     /// Retrieve the raw debug logs, if any.
@@ -352,10 +348,12 @@ impl InternalView for View {
     /// Return ranges (exclusive of endpoint) of no access memory.
     fn get_noaccess_ranges(&self) -> Option<Vec<(u32, u32)>> {
         if let Some(layout) = self.view_memory_layout() {
-            Some(vec![
-                (layout.registers_start(), layout.registers_end()),
-                (layout.ad_start(), layout.ad_end()),
-            ])
+            Some(
+                vec![
+                    (layout.registers_start(), layout.registers_end()),
+                    (layout.ad_start(), layout.ad_end())
+                ]
+            )
         } else {
             None
         }
@@ -370,13 +368,10 @@ impl InternalView for View {
                 ranges.insert(0, (static_ram.1, layout.public_input_end()));
                 ranges.insert(0, (layout.public_input_address_location(), static_ram.0));
             } else {
-                ranges.insert(
-                    0,
-                    (
-                        layout.public_input_address_location(),
-                        layout.public_input_end(),
-                    ),
-                );
+                ranges.insert(0, (
+                    layout.public_input_address_location(),
+                    layout.public_input_end(),
+                ));
             }
 
             Some(ranges)

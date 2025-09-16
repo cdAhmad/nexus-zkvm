@@ -2,6 +2,7 @@ use crate::compile::Compile;
 use crate::traits::*;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
 use thiserror::Error;
 
@@ -162,8 +163,12 @@ impl Prover for Stwo<Local> {
             private_encoded.as_slice(),
             1,
         )?;
-        let proof = nexus_core::stwo::prove(&trace, &view)?;
+        let view_bytes = postcard::to_allocvec(&view).expect("Failed to serialize proof");
+        println!("view hash {}", format!("{:x}", Keccak256::digest(&view_bytes)));
+        let trace_bytes = postcard::to_allocvec(&trace).expect("Failed to serialize proof");
+        println!("trace hash {}", format!("{:x}", Keccak256::digest(&trace_bytes)));
 
+        let proof = nexus_core::stwo::prove(&trace, &view)?;
         Ok((
             view,
             Proof {
