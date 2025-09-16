@@ -112,7 +112,7 @@ use serde::{Deserialize, Serialize};
 /// `LinearMemoryLayout` describes a legal memory layout according to our specs. See `validate`
 /// for details.
 // nb: all measurements are in terms of virtual memory
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize,Deserialize,PartialEq,Eq)]
 pub struct LinearMemoryLayout {
     // start of the public input
     public_input: u32,
