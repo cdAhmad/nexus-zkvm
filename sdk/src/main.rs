@@ -30,6 +30,8 @@ fn prov() -> Result<String, TestError> {
     let now = std::time::Instant::now();
     let inputs = &(5000u32, 3791366113u32, 4014011445u32);
     let prover = create_fib_prover()?;
+      let prover_bytes = postcard::to_allocvec(&prover).expect("Failed to serialize prover");
+     println!("prover hash {}", format!("{:x}", Keccak256::digest(&prover_bytes)));
     let (view, proof) = prover
         .prove_with_input::<(), (u32, u32, u32)>(&(), inputs)
         .map_err(|e| {

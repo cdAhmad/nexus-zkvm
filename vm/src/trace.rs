@@ -295,7 +295,7 @@ pub fn k_trace(
 ) -> Result<(View, UniformTrace)> {
     assert!(k > 0);
     let mut harvard = HarvardEmulator::from_elf(&elf, public_input, private_input);
-    harvard.get_executor_mut().capture_logs(true);
+    harvard.get_executor_mut().capture_logs(false);
 
     match harvard.execute(false) {
         Err(VMError::VMExited(_)) => {
