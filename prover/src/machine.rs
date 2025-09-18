@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use num_traits::Zero;
+use sha3::{ Digest, Keccak256 };
 use stwo_prover::{
     constraint_framework::TraceLocationAllocator,
     core::{
@@ -171,6 +172,11 @@ impl<C: MachineChip + Sync> Machine<C> {
             exit_code: view.get_exit_code(),
             public_output: view.get_public_output(),
         };
+        let trace_bytes = postcard
+            ::to_allocvec(&program_trace_ref)
+            .expect("Failed to serialize proof");
+        println!("program_trace_ref hash {}", format!("{:x}", Keccak256::digest(&trace_bytes)));
+
         let program_traces = ProgramTracesBuilder::new(log_size, program_trace_ref);
         let mut prover_side_note = SideNote::new(&program_traces, view);
         let program_steps = iter_program_steps(trace, prover_traces.num_rows());
@@ -296,11 +302,37 @@ impl<C: MachineChip + Sync> Machine<C> {
             .map(|c| &**c)
             .collect();
         components_ref.insert(0, &main_component);
+        let components_ref_bytes = postcard
+            ::to_allocvec(
+                &components_ref
+                    .iter()
+                    .map(|_| ())
+                    .collect::<Vec<_>>()
+            )
+            .expect("Failed to serialize proof");
+        println!(
+            "components_ref hash  : {}",
+            format!("{:x}", Keccak256::digest(&components_ref_bytes))
+        );
+        let prover_channel_digest_bytes = postcard
+            ::to_allocvec(&prover_channel.digest())
+            .expect("F");
+        println!(
+            "prover_channel_digest  hash  : {}",
+            format!("{:x}", Keccak256::digest(&prover_channel_digest_bytes))
+        );
+        println!(
+            "prover_channel channel_time  : n_challenges:{} n_sent:{}",
+             &prover_channel.channel_time.n_challenges,
+              &prover_channel.channel_time.n_challenges,
+        );
+
         let proof = prove::<SimdBackend, Blake2sMerkleChannel>(
             &components_ref,
             prover_channel,
             commitment_scheme
         )?;
+        println!("Proof size: {}", proof.size_estimate());
 
         Ok(Proof {
             stark_proof: proof,

@@ -1,4 +1,5 @@
 use num_traits::Zero;
+use serde::{Deserialize, Serialize};
 use stwo_prover::core::{
     backend::simd::{column::BaseColumn, m31::LOG_N_LANES, SimdBackend},
     fields::m31::BaseField,
@@ -29,7 +30,7 @@ pub struct ProgramTracesBuilder {
     pub(crate) num_instructions: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub struct ProgramTraceRef<'a> {
     /// Reference to the program memory.
     pub program_memory: &'a ProgramInfo,

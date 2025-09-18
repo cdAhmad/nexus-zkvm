@@ -174,7 +174,6 @@ impl Prover for Stwo<Local> {
             private_encoded.as_slice(),
             1
         )?;
-        println!("k_trace {} milliseconds", now.elapsed().as_millis());
         let now= std::time::Instant::now();
         let view_bytes = postcard::to_allocvec(&view).expect("Failed to serialize proof");
         println!("view hash {}", format!("{:x}", Keccak256::digest(&view_bytes)));
