@@ -1,17 +1,13 @@
-use num_traits::{One, Zero};
-use stwo_prover::core::{
-    backend::simd::{column::BaseColumn, m31::LOG_N_LANES, SimdBackend},
-    fields::m31::BaseField,
-    poly::{
-        circle::{CanonicCoset, CircleEvaluation},
-        BitReversedOrder,
-    },
-    ColumnVec,
+use num_traits::{ One, Zero };
+use stwo::core::{ fields::m31::BaseField, ColumnVec, poly::circle::{ CanonicCoset } };
+use stwo::prover::{
+    backend::simd::{ column::BaseColumn, m31::LOG_N_LANES, SimdBackend },
+    poly::{ circle::{ CircleEvaluation }, BitReversedOrder },
 };
 
 use nexus_vm::WORD_SIZE;
 
-use super::{utils::finalize_columns, TracesBuilder};
+use super::{ utils::finalize_columns, TracesBuilder };
 use crate::column::PreprocessedColumn;
 
 /// Preprocessed (constant) traces builder corresponding to [`PreprocessedColumn`].
@@ -29,11 +25,7 @@ impl PreprocessedBuilder {
     /// Returns [`PreprocessedColumn::COLUMNS_NUM`] columns, each one `2.pow(log_size)` in length, filled with preprocessed trace content.
     fn new(log_size: u32) -> Self {
         assert!(log_size >= LOG_N_LANES);
-        assert!(
-            log_size >= Self::MIN_LOG_SIZE,
-            "log_size must be at least {}",
-            Self::MIN_LOG_SIZE,
-        );
+        assert!(log_size >= Self::MIN_LOG_SIZE, "log_size must be at least {}", Self::MIN_LOG_SIZE);
         let cols = vec![vec![BaseField::zero(); 1 << log_size]; PreprocessedColumn::COLUMNS_NUM];
         let mut ret = Self(TracesBuilder { cols, log_size });
         ret.fill_is_first();
@@ -56,11 +48,12 @@ impl PreprocessedBuilder {
         &mut self,
         row_idx: usize,
         preprocessed_column: PreprocessedColumn,
-        clk: [u8; WORD_SIZE],
+        clk: [u8; WORD_SIZE]
     ) {
         for (limb_idx, clk_byte) in clk.iter().enumerate().take(WORD_SIZE) {
-            self.0.cols[preprocessed_column.offset() + limb_idx][row_idx] =
-                BaseField::from(*clk_byte as u32);
+            self.0.cols[preprocessed_column.offset() + limb_idx][row_idx] = BaseField::from(
+                *clk_byte as u32
+            );
         }
     }
 
@@ -76,27 +69,27 @@ impl PreprocessedBuilder {
 
     pub(crate) fn fill_timestamps(&mut self) {
         // Make sure the last reg3_ts_cur computation doesn't overflow
-        assert!(self.num_rows() < (u32::MAX as usize - 3) / 3);
-        for row_idx in 0..(1 << self.log_size()) {
+        assert!(self.num_rows() < ((u32::MAX as usize) - 3) / 3);
+        for row_idx in 0..1 << self.log_size() {
             let clk = (row_idx + 1) as u32;
             self.fill_preprocessed_word(row_idx, PreprocessedColumn::Clk, clk.to_le_bytes());
             let reg1_ts_cur = clk * 3 + 1;
             self.fill_preprocessed_word(
                 row_idx,
                 PreprocessedColumn::Reg1TsCur,
-                reg1_ts_cur.to_le_bytes(),
+                reg1_ts_cur.to_le_bytes()
             );
             let reg2_ts_cur = clk * 3 + 2;
             self.fill_preprocessed_word(
                 row_idx,
                 PreprocessedColumn::Reg2TsCur,
-                reg2_ts_cur.to_le_bytes(),
+                reg2_ts_cur.to_le_bytes()
             );
             let reg3_ts_cur = clk * 3 + 3;
             self.fill_preprocessed_word(
                 row_idx,
                 PreprocessedColumn::Reg3TsCur,
-                reg3_ts_cur.to_le_bytes(),
+                reg3_ts_cur.to_le_bytes()
             );
         }
     }
@@ -131,14 +124,14 @@ impl PreprocessedTraces {
 
     pub fn get_preprocessed_base_column<const N: usize>(
         &self,
-        col: PreprocessedColumn,
+        col: PreprocessedColumn
     ) -> [&BaseColumn; N] {
         assert_eq!(col.size(), N, "column size mismatch");
         std::array::from_fn(|i| &self.cols[col.offset() + i])
     }
 
     pub fn into_circle_evaluation(
-        self,
+        self
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let domain = CanonicCoset::new(self.log_size).circle_domain();
         self.cols

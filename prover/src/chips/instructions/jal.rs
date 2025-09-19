@@ -1,5 +1,5 @@
-use stwo_prover::{constraint_framework::EvalAtRow, core::fields::FieldExpOps};
-
+use stwo::{  core::fields::FieldExpOps};
+use stwo_constraint_framework::EvalAtRow;
 use nexus_vm::riscv::BuiltinOpcode;
 
 use crate::{

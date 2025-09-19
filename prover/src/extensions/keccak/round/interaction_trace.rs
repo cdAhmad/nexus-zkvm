@@ -1,25 +1,24 @@
-use stwo_prover::{
-    constraint_framework::{logup::LogupTraceGenerator, Relation},
-    core::{
-        backend::simd::{
-            column::BaseColumn,
-            m31::{PackedM31, LOG_N_LANES},
-            qm31::PackedSecureField,
-            SimdBackend,
-        },
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{circle::CircleEvaluation, BitReversedOrder},
-        ColumnVec,
+use stwo::{ core::{ fields::{ m31::BaseField, qm31::SecureField }, ColumnVec } };
+use stwo::prover::{
+    backend::simd::{
+        column::BaseColumn,
+        m31::{ PackedM31, LOG_N_LANES },
+        qm31::PackedSecureField,
+        SimdBackend,
     },
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
 };
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation };
 
 use crate::{
     components::lookups::{
-        KeccakBitNotAndLookupElements, KeccakBitRotateLookupElements, KeccakStateLookupElements,
+        KeccakBitNotAndLookupElements,
+        KeccakBitRotateLookupElements,
+        KeccakStateLookupElements,
         KeccakXorLookupElements,
     },
     extensions::ComponentTrace,
-    trace::sidenote::keccak::{BitOp, RoundLookups},
+    trace::sidenote::keccak::{ BitOp, RoundLookups },
 };
 
 use super::constants::LANE_SIZE;
@@ -35,11 +34,8 @@ impl RoundLogUpGenerator<'_> {
         state_lookup_elements: &KeccakStateLookupElements,
         xor_lookup_elements: &KeccakXorLookupElements,
         bit_not_and_lookup_elements: &KeccakBitNotAndLookupElements,
-        bit_rotate_lookup_elements: &KeccakBitRotateLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        bit_rotate_lookup_elements: &KeccakBitRotateLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let log_size = self.component_trace.log_size;
         let mut logup_gen = LogupTraceGenerator::new(log_size);
 
@@ -60,7 +56,7 @@ impl RoundLogUpGenerator<'_> {
                     *op,
                     a,
                     b,
-                    c,
+                    c
                 );
             }
         }
@@ -76,13 +72,11 @@ impl RoundLogUpGenerator<'_> {
             BitOp::Xor,
             a,
             rc,
-            xor_rc,
+            xor_rc
         );
 
         let input_state = &original_trace[..25 * LANE_SIZE];
-        let output_state: Vec<&BaseColumn> = self
-            .round_lookups
-            .output_state_lookup
+        let output_state: Vec<&BaseColumn> = self.round_lookups.output_state_lookup
             .iter()
             .flat_map(|&i| &original_trace[i..i + LANE_SIZE])
             .collect();
@@ -92,7 +86,7 @@ impl RoundLogUpGenerator<'_> {
             state_lookup_elements,
             input_state,
             &output_state,
-            is_padding,
+            is_padding
         );
 
         logup_gen.finalize_last()
@@ -106,11 +100,11 @@ impl RoundLogUpGenerator<'_> {
         bit_op: BitOp,
         a: &[BaseColumn],
         b: &[BaseColumn],
-        c: &[BaseColumn],
+        c: &[BaseColumn]
     ) {
         for i in (0..LANE_SIZE).step_by(2) {
             let mut logup_col_gen = logup_gen.new_col();
-            for vec_idx in 0..(1 << (self.component_trace.log_size - LOG_N_LANES)) {
+            for vec_idx in 0..1 << (self.component_trace.log_size - LOG_N_LANES) {
                 let xor1 = {
                     let a = a[i].data[vec_idx];
                     let b = b[i].data[vec_idx];
@@ -150,12 +144,12 @@ impl RoundLogUpGenerator<'_> {
         r: u32,
         a: &[BaseColumn],
         bytes_high: &[BaseColumn],
-        bytes_low: &[BaseColumn],
+        bytes_low: &[BaseColumn]
     ) {
         let shift = BaseField::from(r).into();
         for i in (0..LANE_SIZE).step_by(2) {
             let mut logup_col_gen = logup_gen.new_col();
-            for vec_idx in 0..(1 << (self.component_trace.log_size - LOG_N_LANES)) {
+            for vec_idx in 0..1 << (self.component_trace.log_size - LOG_N_LANES) {
                 let p0: PackedSecureField = {
                     let input = a[i].data[vec_idx];
                     let bytes_high = bytes_high[i].data[vec_idx];
@@ -181,18 +175,22 @@ impl RoundLogUpGenerator<'_> {
         lookup_elements: &KeccakStateLookupElements,
         input_state: &[BaseColumn],
         output_state: &[&BaseColumn],
-        is_padding: &BaseColumn,
+        is_padding: &BaseColumn
     ) {
         let mut logup_col_gen = logup_gen.new_col();
-        for vec_idx in 0..(1 << (self.component_trace.log_size - LOG_N_LANES)) {
+        for vec_idx in 0..1 << (self.component_trace.log_size - LOG_N_LANES) {
             let p0: PackedSecureField = {
-                let tuple: Vec<PackedM31> =
-                    input_state.iter().map(|col| col.data[vec_idx]).collect();
+                let tuple: Vec<PackedM31> = input_state
+                    .iter()
+                    .map(|col| col.data[vec_idx])
+                    .collect();
                 lookup_elements.combine(&tuple)
             };
             let p1: PackedSecureField = {
-                let tuple: Vec<PackedM31> =
-                    output_state.iter().map(|col| col.data[vec_idx]).collect();
+                let tuple: Vec<PackedM31> = output_state
+                    .iter()
+                    .map(|col| col.data[vec_idx])
+                    .collect();
                 lookup_elements.combine(&tuple)
             };
             let is_padding: PackedSecureField = is_padding.data[vec_idx].into();

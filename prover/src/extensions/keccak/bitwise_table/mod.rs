@@ -30,28 +30,28 @@
 //! bitwise ops: (a_l, b_l, a_l^b_l, !a_l&b_l).
 //! The rest of the lookups are computed based on these constant columns.
 
-use std::{marker::PhantomData, simd::u32x16};
-
-use stwo_prover::{
-    constraint_framework::{EvalAtRow, FrameworkEval},
-    core::{
+use std::{ marker::PhantomData, simd::u32x16 };
+use stwo_constraint_framework::{ EvalAtRow, FrameworkEval };
+use stwo::{
+    prover::{
         backend::simd::SimdBackend,
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
+        poly::{ circle::CircleEvaluation, BitReversedOrder },
+    },
+    core::{
+        fields::{ m31::BaseField, qm31::SecureField },
+        poly::{ circle::{ CanonicCoset } },
         ColumnVec,
     },
 };
 
 use crate::{
     components::{
-        lookups::{KeccakBitNotAndLookupElements, KeccakXorLookupElements},
-        AllLookupElements, RegisteredLookupBound,
+        lookups::{ KeccakBitNotAndLookupElements, KeccakXorLookupElements },
+        AllLookupElements,
+        RegisteredLookupBound,
     },
-    extensions::{BuiltInExtension, ComponentTrace, FrameworkEvalExt},
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote},
+    extensions::{ BuiltInExtension, ComponentTrace, FrameworkEvalExt },
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote },
 };
 
 pub(crate) mod constraints;
@@ -79,21 +79,17 @@ pub struct BitwiseTable<const ELEM_BITS: u32, const EXPAND_BITS: u32, R, B> {
 // auto-derive enforces bounds on generic parameters
 
 impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R, B> PartialEq
-    for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B>
-{
+for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
 impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R, B> Eq
-    for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B>
-{
-}
+for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B> {}
 
 impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R, B> std::hash::Hash
-    for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B>
-{
+for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B> {
     fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
 }
 
@@ -102,15 +98,21 @@ pub struct BitwiseTableEval<const ELEM_BITS: u32, const EXPAND_BITS: u32, R, B> 
     _phantom_data: PhantomData<B>,
 }
 
-impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: BitwiseOp>
-    BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B>
-{
+impl<
+    const ELEM_BITS: u32,
+    const EXPAND_BITS: u32,
+    R: RegisteredLookupBound,
+    B: BitwiseOp
+> BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B> {
     const LOG_SIZE: u32 = 12;
 }
 
-impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: BitwiseOp>
-    FrameworkEval for BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B>
-{
+impl<
+    const ELEM_BITS: u32,
+    const EXPAND_BITS: u32,
+    R: RegisteredLookupBound,
+    B: BitwiseOp
+> FrameworkEval for BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B> {
     fn log_size(&self) -> u32 {
         preprocessed_columns::BitwiseTable::new(ELEM_BITS, EXPAND_BITS, 0).column_bits()
     }
@@ -129,9 +131,12 @@ impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: 
     }
 }
 
-impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: BitwiseOp>
-    FrameworkEvalExt for BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B>
-{
+impl<
+    const ELEM_BITS: u32,
+    const EXPAND_BITS: u32,
+    R: RegisteredLookupBound,
+    B: BitwiseOp
+> FrameworkEvalExt for BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B> {
     fn new(log_size: u32, lookup_elements: &AllLookupElements) -> Self {
         assert_eq!(log_size, Self::LOG_SIZE);
         let lookup: &R = lookup_elements.as_ref();
@@ -149,15 +154,18 @@ impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: 
     }
 }
 
-impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: BitwiseOp>
-    BuiltInExtension for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B>
-{
+impl<
+    const ELEM_BITS: u32,
+    const EXPAND_BITS: u32,
+    R: RegisteredLookupBound,
+    B: BitwiseOp
+> BuiltInExtension for BitwiseTable<ELEM_BITS, EXPAND_BITS, R, B> {
     type Eval = BitwiseTableEval<ELEM_BITS, EXPAND_BITS, R, B>;
 
     fn generate_preprocessed_trace(
         &self,
         _log_size: u32,
-        _program_trace_ref: ProgramTraceRef,
+        _program_trace_ref: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         if B::PREPROCESSED_TRACE_GEN {
             let table = preprocessed_columns::BitwiseTable::new(ELEM_BITS, EXPAND_BITS, 0);
@@ -177,10 +185,11 @@ impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: 
         &self,
         _log_size: u32,
         _program_trace_ref: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace {
         let preprocessed = if B::PREPROCESSED_TRACE_GEN {
-            preprocessed_columns::BitwiseTable::new(ELEM_BITS, EXPAND_BITS, 0)
+            preprocessed_columns::BitwiseTable
+                ::new(ELEM_BITS, EXPAND_BITS, 0)
                 .generate_constant_trace()
         } else {
             vec![]
@@ -199,15 +208,12 @@ impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: 
         &self,
         component_trace: ComponentTrace,
         _side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let lookup_elements: &R = lookup_elements.as_ref();
         trace::generate_interaction_trace::<ELEM_BITS, EXPAND_BITS, _, B>(
             component_trace,
-            <R as RegisteredLookupBound>::as_relation_ref(lookup_elements),
+            <R as RegisteredLookupBound>::as_relation_ref(lookup_elements)
         )
     }
 
@@ -216,11 +222,7 @@ impl<const ELEM_BITS: u32, const EXPAND_BITS: u32, R: RegisteredLookupBound, B: 
     }
 
     fn preprocessed_trace_sizes(_log_size: u32) -> Vec<u32> {
-        if B::PREPROCESSED_TRACE_GEN {
-            vec![Self::Eval::LOG_SIZE; 4]
-        } else {
-            Vec::new()
-        }
+        if B::PREPROCESSED_TRACE_GEN { vec![Self::Eval::LOG_SIZE; 4] } else { Vec::new() }
     }
 }
 
@@ -239,11 +241,7 @@ impl BitwiseOp for Xor {
     }
 
     fn accum_mut(side_note: &mut SideNote) -> &mut BitwiseAccumulator {
-        side_note
-            .keccak
-            .xor_accum
-            .as_mut()
-            .expect("keccak side note is empty")
+        side_note.keccak.xor_accum.as_mut().expect("keccak side note is empty")
     }
 }
 
@@ -262,14 +260,14 @@ impl BitwiseOp for BitNotAnd {
     }
 
     fn accum_mut(side_note: &mut SideNote) -> &mut BitwiseAccumulator {
-        side_note
-            .keccak
-            .bit_not_and_accum
-            .as_mut()
-            .expect("keccak side note is empty")
+        side_note.keccak.bit_not_and_accum.as_mut().expect("keccak side note is empty")
     }
 }
 
 pub type XorTable = BitwiseTable<ELEM_BITS, EXPAND_BITS, KeccakXorLookupElements, Xor>;
-pub type BitNotAndTable =
-    BitwiseTable<ELEM_BITS, EXPAND_BITS, KeccakBitNotAndLookupElements, BitNotAnd>;
+pub type BitNotAndTable = BitwiseTable<
+    ELEM_BITS,
+    EXPAND_BITS,
+    KeccakBitNotAndLookupElements,
+    BitNotAnd
+>;

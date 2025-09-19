@@ -52,7 +52,7 @@ mod tests {
     };
     use rand::{RngCore, SeedableRng};
     use rand_chacha::ChaCha12Rng;
-    use stwo_prover::{
+    use stwo::{
         constraint_framework::{
             TraceLocationAllocator, ORIGINAL_TRACE_IDX, PREPROCESSED_TRACE_IDX,
         },
@@ -172,7 +172,7 @@ mod tests {
             .collect();
         let components_ref: Vec<&dyn ComponentProver<SimdBackend>> =
             components.iter().map(|c| &**c).collect();
-        stwo_prover::core::prover::prove::<SimdBackend, Blake2sMerkleChannel>(
+        stwo::core::prover::prove::<SimdBackend, Blake2sMerkleChannel>(
             &components_ref,
             prover_channel,
             commitment_scheme,

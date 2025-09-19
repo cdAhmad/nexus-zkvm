@@ -1,37 +1,48 @@
 use std::array;
 
 use num_traits::Zero;
-use stwo_prover::{
-    constraint_framework::{logup::LogupTraceGenerator, EvalAtRow, Relation, RelationEntry},
-    core::{
-        backend::simd::m31::{PackedBaseField, LOG_N_LANES},
-        fields::m31::BaseField,
-    },
+use stwo::{
+    core::fields::m31::BaseField,
+    prover::backend::simd::{ column::BaseColumn, m31::{PackedBaseField, LOG_N_LANES}, SimdBackend },
 };
+use stwo_constraint_framework::{preprocessed_columns::PreProcessedColumnId, EvalAtRow, LogupTraceGenerator, RelationEntry};
 
-use nexus_vm::{riscv::BuiltinOpcode, WORD_SIZE};
-
+use nexus_vm::{ riscv::BuiltinOpcode, WORD_SIZE };
+use stwo_constraint_framework::Relation;
 use crate::{
     column::Column::{
-        self, IsAnd, IsOr, IsXor, ValueA, ValueA4_7, ValueB, ValueB4_7, ValueC, ValueC4_7,
+        self,
+        IsAnd,
+        IsOr,
+        IsXor,
+        ValueA,
+        ValueA4_7,
+        ValueB,
+        ValueB4_7,
+        ValueC,
+        ValueC4_7,
     },
     components::AllLookupElements,
     extensions::ExtensionsConfig,
     trace::{
-        eval::{trace_eval, TraceEval},
+        eval::{ trace_eval, TraceEval },
         program_trace::ProgramTraces,
         sidenote::SideNote,
-        FinalizedTraces, PreprocessedTraces, ProgramStep, TracesBuilder, Word,
+        FinalizedTraces,
+        PreprocessedTraces,
+        ProgramStep,
+        TracesBuilder,
+        Word,
     },
-    traits::{ExecuteChip, MachineChip},
-    virtual_column::{VirtualColumn, VirtualColumnForSum},
+    traits::{ ExecuteChip, MachineChip },
+    virtual_column::{ VirtualColumn, VirtualColumnForSum },
 };
 
 // Support bitwise operations opcode with lookups.
 pub struct BitOpChip;
 
 const LOOKUP_TUPLE_SIZE: usize = 4; // op_flag, b, c, a
-stwo_prover::relation!(BitOpLookupElements, LOOKUP_TUPLE_SIZE);
+stwo_constraint_framework::relation!(BitOpLookupElements, LOOKUP_TUPLE_SIZE);
 
 /// Unit-enum indicating which bitwise operation is executed by the chip.
 ///
@@ -74,15 +85,15 @@ impl VirtualColumn<WORD_SIZE> for ValueA0_3 {
 
     fn read_from_finalized_traces(
         traces: &FinalizedTraces,
-        vec_idx: usize,
+        vec_idx: usize
     ) -> [PackedBaseField; WORD_SIZE] {
         let value_a = traces.get_base_column::<WORD_SIZE>(ValueA);
         let value_a_4_7 = traces.get_base_column::<WORD_SIZE>(ValueA4_7);
         let mut result = [PackedBaseField::zero(); WORD_SIZE];
         for i in 0..WORD_SIZE {
-            result[i] = value_a[i].data[vec_idx]
-                - value_a_4_7[i].data[vec_idx]
-                    * PackedBaseField::broadcast(BaseField::from(1 << 4));
+            result[i] =
+                value_a[i].data[vec_idx] -
+                value_a_4_7[i].data[vec_idx] * PackedBaseField::broadcast(BaseField::from(1 << 4));
         }
         result
     }
@@ -112,15 +123,15 @@ impl VirtualColumn<WORD_SIZE> for ValueB0_3 {
 
     fn read_from_finalized_traces(
         traces: &FinalizedTraces,
-        vec_idx: usize,
+        vec_idx: usize
     ) -> [PackedBaseField; WORD_SIZE] {
         let value_b = traces.get_base_column::<WORD_SIZE>(ValueB);
         let value_b_4_7 = traces.get_base_column::<WORD_SIZE>(ValueB4_7);
         let mut result = [PackedBaseField::zero(); WORD_SIZE];
         for i in 0..WORD_SIZE {
-            result[i] = value_b[i].data[vec_idx]
-                - value_b_4_7[i].data[vec_idx]
-                    * PackedBaseField::broadcast(BaseField::from(1 << 4));
+            result[i] =
+                value_b[i].data[vec_idx] -
+                value_b_4_7[i].data[vec_idx] * PackedBaseField::broadcast(BaseField::from(1 << 4));
         }
         result
     }
@@ -150,15 +161,15 @@ impl VirtualColumn<WORD_SIZE> for ValueC0_3 {
 
     fn read_from_finalized_traces(
         traces: &FinalizedTraces,
-        vec_idx: usize,
+        vec_idx: usize
     ) -> [PackedBaseField; WORD_SIZE] {
         let value_c = traces.get_base_column::<WORD_SIZE>(ValueC);
         let value_c_4_7 = traces.get_base_column::<WORD_SIZE>(ValueC4_7);
         let mut result = [PackedBaseField::zero(); WORD_SIZE];
         for i in 0..WORD_SIZE {
-            result[i] = value_c[i].data[vec_idx]
-                - value_c_4_7[i].data[vec_idx]
-                    * PackedBaseField::broadcast(BaseField::from(1 << 4));
+            result[i] =
+                value_c[i].data[vec_idx] -
+                value_c_4_7[i].data[vec_idx] * PackedBaseField::broadcast(BaseField::from(1 << 4));
         }
         result
     }
@@ -185,12 +196,8 @@ pub struct ExecutionResult {
 impl ExecuteChip for BitOpChip {
     type ExecutionResult = ExecutionResult;
     fn execute(program_step: &ProgramStep) -> ExecutionResult {
-        let bit_op = match program_step
-            .step
-            .instruction
-            .opcode
-            .builtin()
-            .expect("built-in opcode expected")
+        let bit_op = match
+            program_step.step.instruction.opcode.builtin().expect("built-in opcode expected")
         {
             BuiltinOpcode::AND | BuiltinOpcode::ANDI => BitOp::And,
             BuiltinOpcode::OR | BuiltinOpcode::ORI => BitOp::Or,
@@ -252,8 +259,8 @@ impl VirtualColumnForSum for IsBitop {
 impl MachineChip for BitOpChip {
     fn draw_lookup_elements(
         all_elements: &mut AllLookupElements,
-        channel: &mut impl stwo_prover::core::channel::Channel,
-        _config: &ExtensionsConfig,
+        channel: &mut impl stwo::core::channel::Channel,
+        _config: &ExtensionsConfig
     ) {
         all_elements.insert(BitOpLookupElements::draw(channel));
     }
@@ -263,21 +270,25 @@ impl MachineChip for BitOpChip {
         row_idx: usize,
         vm_step: &Option<ProgramStep>,
         side_note: &mut SideNote,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let vm_step = match vm_step {
             Some(vm_step) => vm_step,
-            None => return, // padding
+            None => {
+                return;
+            } // padding
         };
-        if !matches!(
-            vm_step.step.instruction.opcode.builtin(),
-            Some(BuiltinOpcode::AND)
-                | Some(BuiltinOpcode::ANDI)
-                | Some(BuiltinOpcode::OR)
-                | Some(BuiltinOpcode::ORI)
-                | Some(BuiltinOpcode::XOR)
-                | Some(BuiltinOpcode::XORI)
-        ) {
+        if
+            !matches!(
+                vm_step.step.instruction.opcode.builtin(),
+                Some(BuiltinOpcode::AND) |
+                    Some(BuiltinOpcode::ANDI) |
+                    Some(BuiltinOpcode::OR) |
+                    Some(BuiltinOpcode::ORI) |
+                    Some(BuiltinOpcode::XOR) |
+                    Some(BuiltinOpcode::XORI)
+            )
+        {
             return;
         }
 
@@ -294,9 +305,7 @@ impl MachineChip for BitOpChip {
         // Before filling the trace, we check the result of 8-bit limbs is correct.
         assert_eq!(
             out_bytes,
-            vm_step
-                .get_result()
-                .expect("Bitwise instruction must have a result")
+            vm_step.get_result().expect("Bitwise instruction must have a result")
         );
 
         // Fill 4-bit splittings
@@ -330,7 +339,7 @@ impl MachineChip for BitOpChip {
         original_traces: &FinalizedTraces,
         _preprocessed_trace: &PreprocessedTraces,
         _program_traces: &ProgramTraces,
-        lookup_element: &AllLookupElements,
+        lookup_element: &AllLookupElements
     ) {
         let lookup_element: &BitOpLookupElements = lookup_element.as_ref();
         // Add checked pairs to logup sum
@@ -348,14 +357,17 @@ impl MachineChip for BitOpChip {
             ] {
                 let mut logup_col_gen = logup_trace_gen.new_col();
                 // vec_row is row_idx divided by 16. Because SIMD.
-                for vec_row in 0..(1 << (original_traces.log_size() - LOG_N_LANES)) {
+                for vec_row in 0..1 << (original_traces.log_size() - LOG_N_LANES) {
                     let op_type = op_type.to_packed_base_field();
-                    let checked_a =
-                        ValueA0_3::read_from_finalized_traces(original_traces, vec_row)[limb_idx];
-                    let checked_b =
-                        ValueB0_3::read_from_finalized_traces(original_traces, vec_row)[limb_idx];
-                    let checked_c =
-                        ValueC0_3::read_from_finalized_traces(original_traces, vec_row)[limb_idx];
+                    let checked_a = ValueA0_3::read_from_finalized_traces(original_traces, vec_row)[
+                        limb_idx
+                    ];
+                    let checked_b = ValueB0_3::read_from_finalized_traces(original_traces, vec_row)[
+                        limb_idx
+                    ];
+                    let checked_c = ValueC0_3::read_from_finalized_traces(original_traces, vec_row)[
+                        limb_idx
+                    ];
                     let checked_tuple = vec![op_type, checked_b, checked_c, checked_a];
                     let denom = lookup_element.combine(&checked_tuple);
                     let numerator = is_op.data[vec_row];
@@ -364,7 +376,7 @@ impl MachineChip for BitOpChip {
                 logup_col_gen.finalize_col();
                 let mut logup_col_gen = logup_trace_gen.new_col();
                 // vec_row is row_idx divided by 16. Because SIMD.
-                for vec_row in 0..(1 << (original_traces.log_size() - LOG_N_LANES)) {
+                for vec_row in 0..1 << (original_traces.log_size() - LOG_N_LANES) {
                     let op_type = op_type.to_packed_base_field();
                     let checked_a = value_a_4_7[limb_idx].data[vec_row];
                     let checked_b = value_b_4_7[limb_idx].data[vec_row];
@@ -383,7 +395,7 @@ impl MachineChip for BitOpChip {
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         lookup_elements: &AllLookupElements,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let lookup_elements: &BitOpLookupElements = lookup_elements.as_ref();
 
@@ -406,28 +418,32 @@ impl MachineChip for BitOpChip {
             ] {
                 let op_type = E::F::from(op_type.to_base_field());
                 let numerator: E::EF = is_op.clone().into();
-                eval.add_to_relation(RelationEntry::new(
-                    lookup_elements,
-                    numerator,
-                    &[
-                        op_type.clone(),
-                        ValueB0_3::eval(trace_eval)[limb_idx].clone(),
-                        ValueC0_3::eval(trace_eval)[limb_idx].clone(),
-                        ValueA0_3::eval(trace_eval)[limb_idx].clone(),
-                    ],
-                ));
+                eval.add_to_relation(
+                    RelationEntry::new(
+                        lookup_elements,
+                        numerator,
+                        &[
+                            op_type.clone(),
+                            ValueB0_3::eval(trace_eval)[limb_idx].clone(),
+                            ValueC0_3::eval(trace_eval)[limb_idx].clone(),
+                            ValueA0_3::eval(trace_eval)[limb_idx].clone(),
+                        ]
+                    )
+                );
 
                 let numerator: E::EF = is_op.clone().into();
-                eval.add_to_relation(RelationEntry::new(
-                    lookup_elements,
-                    numerator,
-                    &[
-                        op_type,
-                        value_b4_7[limb_idx].clone(),
-                        value_c4_7[limb_idx].clone(),
-                        value_a4_7[limb_idx].clone(),
-                    ],
-                ));
+                eval.add_to_relation(
+                    RelationEntry::new(
+                        lookup_elements,
+                        numerator,
+                        &[
+                            op_type,
+                            value_b4_7[limb_idx].clone(),
+                            value_c4_7[limb_idx].clone(),
+                            value_a4_7[limb_idx].clone(),
+                        ]
+                    )
+                );
             }
         }
     }
@@ -436,13 +452,13 @@ impl MachineChip for BitOpChip {
 #[cfg(test)]
 mod test {
     use crate::{
-        chips::{AddChip, CpuChip, DecodingCheckChip, ProgramMemCheckChip, RegisterMemCheckChip},
-        extensions::{bit_op::BitOpMultiplicityEval, final_reg::FinalRegEval, ExtensionComponent},
+        chips::{ AddChip, CpuChip, DecodingCheckChip, ProgramMemCheckChip, RegisterMemCheckChip },
+        extensions::{ bit_op::BitOpMultiplicityEval, final_reg::FinalRegEval, ExtensionComponent },
         test_utils::assert_chip,
         trace::{
             preprocessed::PreprocessedBuilder,
             program::iter_program_steps,
-            program_trace::{ProgramTraceRef, ProgramTracesBuilder},
+            program_trace::{ ProgramTraceRef, ProgramTracesBuilder },
         },
     };
 
@@ -450,31 +466,33 @@ mod test {
 
     use nexus_vm::{
         emulator::InternalView,
-        riscv::{BasicBlock, BuiltinOpcode, Instruction, Opcode},
+        riscv::{ BasicBlock, BuiltinOpcode, Instruction, Opcode },
         trace::k_trace_direct,
     };
-    use stwo_prover::core::fields::qm31::SecureField;
+    use stwo::core::fields::qm31::SecureField;
 
     const LOG_SIZE: u32 = PreprocessedBuilder::MIN_LOG_SIZE;
 
     fn setup_basic_block_ir() -> Vec<BasicBlock> {
-        let basic_block = BasicBlock::new(vec![
-            // 0b11100 & 0b01000 = 0b01000
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 1, 0, 28),
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 2, 0, 8),
-            // x3 = x1 & x2
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::AND), 3, 1, 2),
-            // 0b100010 | 0b011011 = 0b111011
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 4, 0, 34),
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 5, 0, 27),
-            // x6 = x4 | x5
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::OR), 6, 4, 5),
-            // 0b1100101 ^ 0b1010001 = 0b0110100
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 7, 0, 101),
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 8, 0, 81),
-            // x9 = x7 ^ x8
-            Instruction::new_ir(Opcode::from(BuiltinOpcode::XOR), 9, 7, 8),
-        ]);
+        let basic_block = BasicBlock::new(
+            vec![
+                // 0b11100 & 0b01000 = 0b01000
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 1, 0, 28),
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 2, 0, 8),
+                // x3 = x1 & x2
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::AND), 3, 1, 2),
+                // 0b100010 | 0b011011 = 0b111011
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 4, 0, 34),
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 5, 0, 27),
+                // x6 = x4 | x5
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::OR), 6, 4, 5),
+                // 0b1100101 ^ 0b1010001 = 0b0110100
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 7, 0, 101),
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::ADDI), 8, 0, 81),
+                // x9 = x7 ^ x8
+                Instruction::new_ir(Opcode::from(BuiltinOpcode::XOR), 9, 7, 8)
+            ]
+        );
         vec![basic_block]
     }
 
@@ -508,7 +526,7 @@ mod test {
                 row_idx,
                 &program_step,
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
 
@@ -533,8 +551,10 @@ mod test {
 
         assert_eq!(output, 0b0110100);
 
-        let (lookup_elements, claimed_sum_1) =
-            assert_chip::<Chips>(traces, Some(program_trace.finalize()));
+        let (lookup_elements, claimed_sum_1) = assert_chip::<Chips>(
+            traces,
+            Some(program_trace.finalize())
+        );
 
         // verify that logup sums match
         let ext = ExtensionComponent::bit_op_multiplicity();
@@ -542,19 +562,25 @@ mod test {
         let component_trace = ext.generate_component_trace(
             BitOpMultiplicityEval::LOG_SIZE,
             program_trace_ref,
-            &mut side_note,
+            &mut side_note
         );
-        let (_, claimed_sum_2) =
-            ext.generate_interaction_trace(component_trace, &side_note, &lookup_elements);
+        let (_, claimed_sum_2) = ext.generate_interaction_trace(
+            component_trace,
+            &side_note,
+            &lookup_elements
+        );
 
         let ext = ExtensionComponent::final_reg();
-        let component_trace =
-            ext.generate_component_trace(FinalRegEval::LOG_SIZE, program_trace_ref, &mut side_note);
-        let (_, claimed_sum_3) =
-            ext.generate_interaction_trace(component_trace, &side_note, &lookup_elements);
-        assert_eq!(
-            claimed_sum_1 + claimed_sum_2 + claimed_sum_3,
-            SecureField::zero()
+        let component_trace = ext.generate_component_trace(
+            FinalRegEval::LOG_SIZE,
+            program_trace_ref,
+            &mut side_note
         );
+        let (_, claimed_sum_3) = ext.generate_interaction_trace(
+            component_trace,
+            &side_note,
+            &lookup_elements
+        );
+        assert_eq!(claimed_sum_1 + claimed_sum_2 + claimed_sum_3, SecureField::zero());
     }
 }

@@ -102,7 +102,7 @@ impl MachineChip for RangeBoolChip {
         // Intentionally empty. Logup isn't used.
     }
 
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E: stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         _lookup_elements: &AllLookupElements,
@@ -172,9 +172,9 @@ mod test {
 
     use nexus_vm::emulator::{Emulator, HarvardEmulator};
 
-    use stwo_prover::constraint_framework::TraceLocationAllocator;
+    use stwo_constraint_framework::TraceLocationAllocator;
 
-    use stwo_prover::core::prover::prove;
+    use stwo::core::prover::prove;
 
     pub type Component = MachineComponent<RangeBoolChip>;
 

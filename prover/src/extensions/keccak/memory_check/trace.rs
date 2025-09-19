@@ -1,29 +1,27 @@
 use nexus_common::constants::WORD_SIZE_HALVED;
 use num_traits::Zero;
-use stwo_prover::{
-    constraint_framework::{logup::LogupTraceGenerator, Relation},
-    core::{
-        backend::simd::{
-            column::BaseColumn,
-            m31::{PackedM31, LOG_N_LANES},
-            qm31::PackedSecureField,
-            SimdBackend,
-        },
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{circle::CircleEvaluation, BitReversedOrder},
-        ColumnVec,
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation };
+use ::stwo::prover::{
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
+    backend::simd::{
+        column::BaseColumn,
+        m31::{ PackedM31, LOG_N_LANES },
+        qm31::PackedSecureField,
+        SimdBackend,
     },
 };
+use stwo::{ core::{ fields::{ m31::BaseField, qm31::SecureField }, ColumnVec } };
 
 use super::PermutationMemoryCheckEval;
 use crate::{
-    components::lookups::{KeccakStateLookupElements, LoadStoreLookupElements},
+    components::lookups::{ KeccakStateLookupElements, LoadStoreLookupElements },
     extensions::ComponentTrace,
     trace::sidenote::SideNote,
 };
 
 pub(super) use crate::extensions::keccak::round::trace::{
-    get_is_padding_base_column, preprocessed_is_last_column,
+    get_is_padding_base_column,
+    preprocessed_is_last_column,
 };
 
 pub fn generate_keccak_mem_check_trace(log_size: u32, side_note: &SideNote) -> ComponentTrace {
@@ -44,8 +42,9 @@ pub fn generate_keccak_mem_check_trace(log_size: u32, side_note: &SideNote) -> C
             input_output_trace[col][row] = BaseField::from(byte as u32);
         }
         for (col, byte) in output.into_iter().flat_map(u64::to_le_bytes).enumerate() {
-            input_output_trace[col + PermutationMemoryCheckEval::STATE_SIZE][row] =
-                BaseField::from(byte as u32);
+            input_output_trace[col + PermutationMemoryCheckEval::STATE_SIZE][row] = BaseField::from(
+                byte as u32
+            );
         }
 
         let (addr_trace, rem) = rem.split_at_mut(state_size * WORD_SIZE_HALVED);
@@ -55,11 +54,10 @@ pub fn generate_keccak_mem_check_trace(log_size: u32, side_note: &SideNote) -> C
         let addr = side_note.keccak.addresses[row];
         for (col, limb) in (0..state_size)
             .flat_map(|i| {
-                let addr = addr + i as u32;
+                let addr = addr + (i as u32);
                 [addr & mask, (addr >> shift) & mask]
             })
-            .enumerate()
-        {
+            .enumerate() {
             addr_trace[col][row] = limb.into();
         }
 
@@ -70,8 +68,7 @@ pub fn generate_keccak_mem_check_trace(log_size: u32, side_note: &SideNote) -> C
             .iter()
             .copied()
             .flat_map(|ts| [ts & mask, (ts >> shift) & mask])
-            .enumerate()
-        {
+            .enumerate() {
             ts_trace[col][row] = limb.into();
         }
 
@@ -84,22 +81,23 @@ pub fn generate_keccak_mem_check_trace(log_size: u32, side_note: &SideNote) -> C
                 let ts = ts + 1;
                 [ts & mask, (ts >> shift) & mask]
             })
-            .enumerate()
-        {
+            .enumerate() {
             ts_trace[col][row] = limb.into();
         }
         // addr carries
         let (addr_carries_trace, rem) = rem.split_at_mut(state_size);
         for (col, carry) in (0..state_size)
-            .map(|i| (addr + i as u32) & mask == mask)
-            .enumerate()
-        {
+            .map(|i| ((addr + (i as u32)) & mask) == mask)
+            .enumerate() {
             addr_carries_trace[col][row] = BaseField::from(u32::from(carry));
         }
 
         // ts carries
         let (ts_carries_trace, _) = rem.split_at_mut(state_size);
-        for (col, carry) in timestamps.iter().map(|ts| ts & mask == mask).enumerate() {
+        for (col, carry) in timestamps
+            .iter()
+            .map(|ts| (ts & mask) == mask)
+            .enumerate() {
             ts_carries_trace[col][row] = BaseField::from(u32::from(carry));
         }
     }
@@ -127,11 +125,8 @@ impl MemoryCheckLogUpGenerator<'_> {
     pub fn interaction_trace(
         &self,
         state_lookup_elements: &KeccakStateLookupElements,
-        memory_lookup_elements: &LoadStoreLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        memory_lookup_elements: &LoadStoreLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let state_size = PermutationMemoryCheckEval::STATE_SIZE;
         let log_size = self.component_trace.log_size;
         let mut logup_gen = LogupTraceGenerator::new(log_size);
@@ -156,7 +151,7 @@ impl MemoryCheckLogUpGenerator<'_> {
             state_lookup_elements,
             input_state,
             output_state,
-            is_padding,
+            is_padding
         );
         self.memory_logup_gen(
             &mut logup_gen,
@@ -166,7 +161,7 @@ impl MemoryCheckLogUpGenerator<'_> {
             addrs,
             prev_ts,
             next_ts,
-            is_padding,
+            is_padding
         );
         logup_gen.finalize_last()
     }
@@ -177,18 +172,22 @@ impl MemoryCheckLogUpGenerator<'_> {
         lookup_elements: &KeccakStateLookupElements,
         input_state: &[BaseColumn],
         output_state: &[BaseColumn],
-        is_padding: &BaseColumn,
+        is_padding: &BaseColumn
     ) {
         let mut logup_col_gen = logup_gen.new_col();
-        for vec_idx in 0..(1 << (self.component_trace.log_size - LOG_N_LANES)) {
+        for vec_idx in 0..1 << (self.component_trace.log_size - LOG_N_LANES) {
             let p0: PackedSecureField = {
-                let tuple: Vec<PackedM31> =
-                    input_state.iter().map(|col| col.data[vec_idx]).collect();
+                let tuple: Vec<PackedM31> = input_state
+                    .iter()
+                    .map(|col| col.data[vec_idx])
+                    .collect();
                 lookup_elements.combine(&tuple)
             };
             let p1: PackedSecureField = {
-                let tuple: Vec<PackedM31> =
-                    output_state.iter().map(|col| col.data[vec_idx]).collect();
+                let tuple: Vec<PackedM31> = output_state
+                    .iter()
+                    .map(|col| col.data[vec_idx])
+                    .collect();
                 lookup_elements.combine(&tuple)
             };
             let is_padding: PackedSecureField = is_padding.data[vec_idx].into();
@@ -207,12 +206,12 @@ impl MemoryCheckLogUpGenerator<'_> {
         addrs: &[BaseColumn],
         prev_ts: &[BaseColumn],
         next_ts: &[BaseColumn],
-        is_padding: &BaseColumn,
+        is_padding: &BaseColumn
     ) {
         for i in 0..PermutationMemoryCheckEval::STATE_SIZE {
             let j = i * WORD_SIZE_HALVED;
             let mut logup_col_gen = logup_gen.new_col();
-            for vec_idx in 0..(1 << (self.component_trace.log_size - LOG_N_LANES)) {
+            for vec_idx in 0..1 << (self.component_trace.log_size - LOG_N_LANES) {
                 let prev_val = &input_state[i];
                 let next_val = &output_state[i];
                 let addr = &addrs[j..j + WORD_SIZE_HALVED];

@@ -1,20 +1,23 @@
 // This file contains range-checking values for 0..=31.
 
-use stwo_prover::constraint_framework::{logup::LogupTraceGenerator, Relation, RelationEntry};
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation, RelationEntry };
 
 use num_traits::One;
-use stwo_prover::core::{
-    backend::simd::m31::LOG_N_LANES,
-    fields::{m31::BaseField, qm31::SecureField},
-};
+use stwo::prover::{ backend::simd::m31::LOG_N_LANES };
+use stwo::core::{ fields::{ m31::BaseField, qm31::SecureField } };
 
 use crate::{
-    column::Column::{self, OpA, OpB, Reg1Address, Reg2Address, Reg3Address},
+    column::Column::{ self, OpA, OpB, Reg1Address, Reg2Address, Reg3Address },
     components::AllLookupElements,
     extensions::ExtensionsConfig,
     trace::{
-        eval::TraceEval, program_trace::ProgramTraces, sidenote::SideNote, FinalizedTraces,
-        PreprocessedTraces, ProgramStep, TracesBuilder,
+        eval::TraceEval,
+        program_trace::ProgramTraces,
+        sidenote::SideNote,
+        FinalizedTraces,
+        PreprocessedTraces,
+        ProgramStep,
+        TracesBuilder,
     },
     traits::MachineChip,
 };
@@ -25,15 +28,15 @@ use crate::{
 pub struct Range32Chip;
 
 const LOOKUP_TUPLE_SIZE: usize = 1;
-stwo_prover::relation!(Range32LookupElements, LOOKUP_TUPLE_SIZE);
+stwo_constraint_framework::relation!(Range32LookupElements, LOOKUP_TUPLE_SIZE);
 
 const CHECKED: [Column; 5] = [OpA, OpB, Reg1Address, Reg2Address, Reg3Address];
 
 impl MachineChip for Range32Chip {
     fn draw_lookup_elements(
         all_elements: &mut AllLookupElements,
-        channel: &mut impl stwo_prover::core::channel::Channel,
-        _config: &ExtensionsConfig,
+        channel: &mut impl stwo::core::channel::Channel,
+        _config: &ExtensionsConfig
     ) {
         all_elements.insert(Range32LookupElements::draw(channel));
     }
@@ -44,7 +47,7 @@ impl MachineChip for Range32Chip {
         row_idx: usize,
         _step: &Option<ProgramStep>,
         side_note: &mut SideNote,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         for col in CHECKED.into_iter() {
             let [val] = traces.column(row_idx, col);
@@ -59,7 +62,7 @@ impl MachineChip for Range32Chip {
         original_traces: &FinalizedTraces,
         _preprocessed_traces: &PreprocessedTraces,
         _program_traces: &ProgramTraces,
-        lookup_element: &AllLookupElements,
+        lookup_element: &AllLookupElements
     ) {
         let lookup_element: &Range32LookupElements = lookup_element.as_ref();
 
@@ -71,7 +74,7 @@ impl MachineChip for Range32Chip {
             // TODO: we can deal with two limbs at a time.
             let mut logup_col_gen = logup_trace_gen.new_col();
             // vec_row is row_idx divided by 16. Because SIMD.
-            for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+            for vec_row in 0..1 << (log_size - LOG_N_LANES) {
                 let checked_tuple = vec![value_basecolumn.data[vec_row]];
                 let denom = lookup_element.combine(&checked_tuple);
                 logup_col_gen.write_frac(vec_row, SecureField::one().into(), denom);
@@ -80,11 +83,11 @@ impl MachineChip for Range32Chip {
         }
     }
 
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E: stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         lookup_elements: &AllLookupElements,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let lookup_elements: &Range32LookupElements = lookup_elements.as_ref();
 
@@ -93,11 +96,9 @@ impl MachineChip for Range32Chip {
             // not using trace_eval! macro because it doesn't accept *col as an argument.
             let [value] = trace_eval.column_eval(*col);
 
-            eval.add_to_relation(RelationEntry::new(
-                lookup_elements,
-                SecureField::one().into(),
-                &[value],
-            ));
+            eval.add_to_relation(
+                RelationEntry::new(lookup_elements, SecureField::one().into(), &[value])
+            );
         }
     }
 }
@@ -114,12 +115,12 @@ mod test {
     use super::*;
 
     use crate::extensions::ExtensionComponent;
-    use crate::test_utils::{assert_chip, commit_traces, test_params, CommittedTraces};
+    use crate::test_utils::{ assert_chip, commit_traces, test_params, CommittedTraces };
     use crate::trace::preprocessed::PreprocessedBuilder;
-    use crate::trace::program_trace::{ProgramTraceRef, ProgramTracesBuilder};
+    use crate::trace::program_trace::{ ProgramTraceRef, ProgramTracesBuilder };
     use crate::traits::MachineChip;
 
-    use nexus_vm::emulator::{Emulator, HarvardEmulator, ProgramInfo};
+    use nexus_vm::emulator::{ Emulator, HarvardEmulator, ProgramInfo };
     use num_traits::Zero;
 
     #[test]
@@ -141,7 +142,7 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         assert_chip::<Range32Chip>(traces, None);
@@ -171,24 +172,31 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         // modify looked up value
         *traces.column_mut::<{ OpA.size() }>(11, OpA)[0] = BaseField::from(32u32);
 
-        let CommittedTraces {
-            claimed_sum,
-            lookup_elements,
-            ..
-        } = commit_traces::<Range32Chip>(config, &twiddles, &traces.finalize(), None);
+        let CommittedTraces { claimed_sum, lookup_elements, .. } = commit_traces::<Range32Chip>(
+            config,
+            &twiddles,
+            &traces.finalize(),
+            None
+        );
 
         // verify that logup sums don't match
         let ext = ExtensionComponent::multiplicity32();
-        let component_trace =
-            ext.generate_component_trace(32u32.trailing_zeros(), program_trace_ref, &mut side_note);
-        let (_, claimed_sum_2) =
-            ext.generate_interaction_trace(component_trace, &side_note, &lookup_elements);
+        let component_trace = ext.generate_component_trace(
+            (32u32).trailing_zeros(),
+            program_trace_ref,
+            &mut side_note
+        );
+        let (_, claimed_sum_2) = ext.generate_interaction_trace(
+            component_trace,
+            &side_note,
+            &lookup_elements
+        );
         assert_ne!(claimed_sum + claimed_sum_2, SecureField::zero());
     }
 }

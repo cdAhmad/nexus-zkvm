@@ -2,20 +2,26 @@ use std::marker::PhantomData;
 
 use num_traits::Zero;
 use sha3::{ Digest, Keccak256 };
-use stwo_prover::{
-    constraint_framework::TraceLocationAllocator,
-    core::{
-        air::{ Component, ComponentProver },
-        backend::simd::SimdBackend,
-        channel::{ Blake2sChannel, Channel },
-        fields::qm31::SecureField,
-        pcs::{ CommitmentSchemeProver, CommitmentSchemeVerifier, PcsConfig, TreeVec },
-        poly::circle::{ CanonicCoset, PolyOps },
-        prover::{ prove, verify, ProvingError, StarkProof, VerificationError },
-        vcs::blake2_merkle::{ Blake2sMerkleChannel, Blake2sMerkleHasher },
-    },
+use stwo_constraint_framework::TraceLocationAllocator;
+use stwo::prover::{
+    backend::simd::SimdBackend,
+    poly::circle::{ PolyOps },
+    CommitmentSchemeProver,
+    ComponentProver,
+    ProvingError,
 };
-
+use stwo::prover::prove;
+use stwo::core::verifier::verify;
+use stwo::core::{
+    fields::qm31::SecureField,
+    air::{ Component },
+    channel::{ Blake2sChannel, Channel },
+    poly::circle::{ CanonicCoset },
+    vcs::blake2_merkle::{ Blake2sMerkleChannel, Blake2sMerkleHasher },
+    pcs::{ CommitmentSchemeVerifier, PcsConfig, TreeVec },
+    proof::StarkProof,
+};
+ use stwo::core::verifier::VerificationError;
 use super::trace::eval::{ INTERACTION_TRACE_IDX, ORIGINAL_TRACE_IDX, PREPROCESSED_TRACE_IDX };
 use super::trace::{
     program::iter_program_steps,
@@ -321,13 +327,9 @@ impl<C: MachineChip + Sync> Machine<C> {
             "prover_channel_digest  hash  : {}",
             format!("{:x}", Keccak256::digest(&prover_channel_digest_bytes))
         );
-        println!(
-            "prover_channel channel_time  : n_challenges:{} n_sent:{}",
-             &prover_channel.channel_time.n_challenges,
-              &prover_channel.channel_time.n_challenges,
-        );
+       
 
-        let proof = prove::<SimdBackend, Blake2sMerkleChannel>(
+        let proof =  prove::<SimdBackend, Blake2sMerkleChannel>(
             &components_ref,
             prover_channel,
             commitment_scheme

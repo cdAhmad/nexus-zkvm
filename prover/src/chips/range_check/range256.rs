@@ -1,31 +1,68 @@
 // This file contains range-checking values for 0..=255.
 
-use stwo_prover::constraint_framework::{logup::LogupTraceGenerator, Relation, RelationEntry};
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation, RelationEntry };
 
 use nexus_vm::WORD_SIZE;
-use num_traits::{One, Zero};
-use stwo_prover::core::{
-    backend::simd::{column::BaseColumn, m31::LOG_N_LANES},
-    fields::{m31::BaseField, qm31::SecureField},
-};
+use num_traits::{ One, Zero };
+use stwo::core::{ fields::{ m31::BaseField, qm31::SecureField } };
+use stwo::prover::{ backend::simd::{ column::BaseColumn, m31::LOG_N_LANES } };
 
 use crate::{
     column::Column::{
-        self, CReg1TsPrev, CReg2TsPrev, CReg3TsPrev, FinalPrgMemoryCtr, Helper1, InstrVal,
-        OpC16_23, OpC24_31, Pc, PcNextAux, PrevCtr, ProgCtrCur, ProgCtrPrev, Qt, Ram1TsPrev,
-        Ram1TsPrevAux, Ram1ValCur, Ram1ValPrev, Ram2TsPrev, Ram2TsPrevAux, Ram2ValCur, Ram2ValPrev,
-        Ram3TsPrev, Ram3TsPrevAux, Ram3ValCur, Ram3ValPrev, Ram4TsPrev, Ram4TsPrevAux, Ram4ValCur,
-        Ram4ValPrev, RamBaseAddr, Reg1TsPrev, Reg2TsPrev, Reg3TsPrev, Rem, RemDiff, ValueA, ValueB,
+        self,
+        CReg1TsPrev,
+        CReg2TsPrev,
+        CReg3TsPrev,
+        FinalPrgMemoryCtr,
+        Helper1,
+        InstrVal,
+        OpC16_23,
+        OpC24_31,
+        Pc,
+        PcNextAux,
+        PrevCtr,
+        ProgCtrCur,
+        ProgCtrPrev,
+        Qt,
+        Ram1TsPrev,
+        Ram1TsPrevAux,
+        Ram1ValCur,
+        Ram1ValPrev,
+        Ram2TsPrev,
+        Ram2TsPrevAux,
+        Ram2ValCur,
+        Ram2ValPrev,
+        Ram3TsPrev,
+        Ram3TsPrevAux,
+        Ram3ValCur,
+        Ram3ValPrev,
+        Ram4TsPrev,
+        Ram4TsPrevAux,
+        Ram4ValCur,
+        Ram4ValPrev,
+        RamBaseAddr,
+        Reg1TsPrev,
+        Reg2TsPrev,
+        Reg3TsPrev,
+        Rem,
+        RemDiff,
+        ValueA,
+        ValueB,
         ValueC,
     },
     components::AllLookupElements,
     extensions::ExtensionsConfig,
     trace::{
-        eval::TraceEval, program_trace::ProgramTraces, sidenote::SideNote, FinalizedTraces,
-        PreprocessedTraces, ProgramStep, TracesBuilder,
+        eval::TraceEval,
+        program_trace::ProgramTraces,
+        sidenote::SideNote,
+        FinalizedTraces,
+        PreprocessedTraces,
+        ProgramStep,
+        TracesBuilder,
     },
     traits::MachineChip,
-    virtual_column::{self, VirtualColumn},
+    virtual_column::{ self, VirtualColumn },
 };
 
 /// A Chip for range-checking values for 0..=255
@@ -34,7 +71,7 @@ use crate::{
 pub struct Range256Chip;
 
 const LOOKUP_TUPLE_SIZE: usize = 1;
-stwo_prover::relation!(Range256LookupElements, LOOKUP_TUPLE_SIZE);
+stwo_constraint_framework::relation!(Range256LookupElements, LOOKUP_TUPLE_SIZE);
 
 impl Range256Chip {
     const CHECKED_WORDS: [Column; 29] = [
@@ -86,8 +123,8 @@ impl Range256Chip {
 impl MachineChip for Range256Chip {
     fn draw_lookup_elements(
         all_elements: &mut AllLookupElements,
-        channel: &mut impl stwo_prover::core::channel::Channel,
-        _config: &ExtensionsConfig,
+        channel: &mut impl stwo::core::channel::Channel,
+        _config: &ExtensionsConfig
     ) {
         all_elements.insert(Range256LookupElements::draw(channel));
     }
@@ -98,7 +135,7 @@ impl MachineChip for Range256Chip {
         row_idx: usize,
         _step: &Option<ProgramStep>,
         side_note: &mut SideNote,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         // This chip needs to wait till every other chip finishes writing bytes.
         // Since some other chips write bytes above the current row, we need to wait till other chips finished filling for the last row.
@@ -131,7 +168,7 @@ impl MachineChip for Range256Chip {
         original_traces: &FinalizedTraces,
         _preprocessed_traces: &PreprocessedTraces,
         _program_traces: &ProgramTraces,
-        lookup_element: &AllLookupElements,
+        lookup_element: &AllLookupElements
     ) {
         let lookup_element: &Range256LookupElements = lookup_element.as_ref();
 
@@ -142,7 +179,7 @@ impl MachineChip for Range256Chip {
                 value_basecolumn,
                 original_traces.log_size(),
                 logup_trace_gen,
-                lookup_element,
+                lookup_element
             );
         }
         for col in Self::CHECKED_BYTES.iter() {
@@ -151,7 +188,7 @@ impl MachineChip for Range256Chip {
                 value_basecolumn,
                 original_traces.log_size(),
                 logup_trace_gen,
-                lookup_element,
+                lookup_element
             );
         }
         for col in Self::TYPE_U_CHECKED_BYTES.iter() {
@@ -162,26 +199,26 @@ impl MachineChip for Range256Chip {
                 for limb in value_basecolumn.iter() {
                     let mut logup_col_gen = logup_trace_gen.new_col();
                     // vec_row is row_idx divided by 16. Because SIMD.
-                    for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+                    for vec_row in 0..1 << (log_size - LOG_N_LANES) {
                         let checked_tuple = vec![limb.data[vec_row]];
                         let denom = lookup_element.combine(&checked_tuple);
                         let [type_u] = virtual_column::IsTypeU::read_from_finalized_traces(
                             original_traces,
-                            vec_row,
+                            vec_row
                         );
                         logup_col_gen.write_frac(vec_row, type_u.into(), denom);
                     }
                     logup_col_gen.finalize_col();
                 }
-            };
+            }
         }
     }
 
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E: stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         lookup_elements: &AllLookupElements,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let lookup_elements: &Range256LookupElements = lookup_elements.as_ref();
 
@@ -190,32 +227,24 @@ impl MachineChip for Range256Chip {
             // not using trace_eval! macro because it doesn't accept *col as an argument.
             let value = trace_eval.column_eval::<WORD_SIZE>(*col);
             for limb in value.into_iter().take(WORD_SIZE) {
-                eval.add_to_relation(RelationEntry::new(
-                    lookup_elements,
-                    SecureField::one().into(),
-                    &[limb],
-                ));
+                eval.add_to_relation(
+                    RelationEntry::new(lookup_elements, SecureField::one().into(), &[limb])
+                );
             }
         }
         for col in Self::CHECKED_BYTES.iter() {
             let [value] = trace_eval.column_eval(*col);
 
-            eval.add_to_relation(RelationEntry::new(
-                lookup_elements,
-                SecureField::one().into(),
-                &[value],
-            ));
+            eval.add_to_relation(
+                RelationEntry::new(lookup_elements, SecureField::one().into(), &[value])
+            );
         }
 
         for col in Self::TYPE_U_CHECKED_BYTES.iter() {
             let [value] = trace_eval.column_eval(*col);
             let [numerator] = virtual_column::IsTypeU::eval(trace_eval);
 
-            eval.add_to_relation(RelationEntry::new(
-                lookup_elements,
-                numerator.into(),
-                &[value],
-            ));
+            eval.add_to_relation(RelationEntry::new(lookup_elements, numerator.into(), &[value]));
         }
     }
 }
@@ -233,13 +262,13 @@ fn check_bytes<const N: usize>(
     basecolumn: [&BaseColumn; N],
     log_size: u32,
     logup_trace_gen: &mut LogupTraceGenerator,
-    lookup_element: &Range256LookupElements,
+    lookup_element: &Range256LookupElements
 ) {
     // TODO: we can deal with two limbs at a time.
     for limb in basecolumn.iter() {
         let mut logup_col_gen = logup_trace_gen.new_col();
         // vec_row is row_idx divided by 16. Because SIMD.
-        for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+        for vec_row in 0..1 << (log_size - LOG_N_LANES) {
             let checked_tuple = vec![limb.data[vec_row]];
             let denom = lookup_element.combine(&checked_tuple);
             logup_col_gen.write_frac(vec_row, SecureField::one().into(), denom);
@@ -255,14 +284,14 @@ mod test {
     use super::*;
 
     use crate::extensions::ExtensionComponent;
-    use crate::test_utils::{assert_chip, commit_traces, test_params, CommittedTraces};
-    use crate::trace::program_trace::{ProgramTraceRef, ProgramTracesBuilder};
-    use crate::trace::{preprocessed::PreprocessedBuilder, Word};
+    use crate::test_utils::{ assert_chip, commit_traces, test_params, CommittedTraces };
+    use crate::trace::program_trace::{ ProgramTraceRef, ProgramTracesBuilder };
+    use crate::trace::{ preprocessed::PreprocessedBuilder, Word };
     use crate::traits::MachineChip;
 
-    use nexus_vm::emulator::{Emulator, HarvardEmulator, ProgramInfo};
+    use nexus_vm::emulator::{ Emulator, HarvardEmulator, ProgramInfo };
 
-    use stwo_prover::core::fields::m31::BaseField;
+    use stwo::core::fields::m31::BaseField;
 
     #[test]
     fn test_range256_chip_success() {
@@ -283,7 +312,7 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         assert_chip::<Range256Chip>(traces, None);
@@ -306,7 +335,7 @@ mod test {
         // Write in-range values to ValueA columns.
         for row_idx in 0..traces.num_rows() {
             let buf: [BaseField; WORD_SIZE] = array::from_fn(|i| {
-                let t = ((row_idx + i) as u8) as u32;
+                let t = (row_idx + i) as u8 as u32;
                 BaseField::from(t)
             });
             traces.fill_columns_base_field(row_idx, &buf, ValueB);
@@ -316,27 +345,31 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         // modify looked up value
         *traces.column_mut::<{ ValueB.size() }>(12, ValueB)[0] = BaseField::from(256u32);
 
-        let CommittedTraces {
-            claimed_sum,
-            lookup_elements,
-            ..
-        } = commit_traces::<Range256Chip>(config, &twiddles, &traces.finalize(), None);
+        let CommittedTraces { claimed_sum, lookup_elements, .. } = commit_traces::<Range256Chip>(
+            config,
+            &twiddles,
+            &traces.finalize(),
+            None
+        );
 
         // verify that logup sums don't match
         let ext = ExtensionComponent::multiplicity256();
         let component_trace = ext.generate_component_trace(
-            256u32.trailing_zeros(),
+            (256u32).trailing_zeros(),
             program_trace_ref,
-            &mut side_note,
+            &mut side_note
         );
-        let (_, claimed_sum_2) =
-            ext.generate_interaction_trace(component_trace, &side_note, &lookup_elements);
+        let (_, claimed_sum_2) = ext.generate_interaction_trace(
+            component_trace,
+            &side_note,
+            &lookup_elements
+        );
         assert_ne!(claimed_sum + claimed_sum_2, SecureField::zero());
     }
 }

@@ -1,9 +1,10 @@
 // A virtual column can be used like a column, but it is not stored in the trace. Instead, it is computed a very-low degree polynomial of other columns.
 
 use num_traits::{One, Zero};
-use stwo_prover::{
-    constraint_framework::EvalAtRow,
-    core::{backend::simd::m31::PackedBaseField, fields::m31::BaseField},
+use stwo_constraint_framework::EvalAtRow;
+use stwo::{
+    prover::backend::simd::m31::PackedBaseField,
+    core::fields::m31::BaseField,
 };
 
 use crate::{

@@ -1,25 +1,16 @@
 use itertools::Itertools;
 use nexus_common::constants::WORD_SIZE_HALVED;
 use nexus_vm::WORD_SIZE;
-use num_traits::{One, Zero};
-use stwo_prover::{
-    constraint_framework::{
-        logup::LogupTraceGenerator, preprocessed_columns::PreProcessedColumnId, EvalAtRow,
-        FrameworkEval, Relation, RelationEntry,
-    },
+use num_traits::{ One, Zero };
+use stwo_constraint_framework::{
+    preprocessed_columns::PreProcessedColumnId, EvalAtRow, FrameworkEval, LogupTraceGenerator, Relation, RelationEntry
+};
+use stwo::{
     core::{
-        backend::simd::{
-            column::BaseColumn,
-            m31::{PackedBaseField, LOG_N_LANES},
-            SimdBackend,
-        },
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
+        fields::{ m31::BaseField, qm31::SecureField },
+        poly::circle::CanonicCoset,
         ColumnVec,
-    },
+    }, prover::{backend::simd::{column::BaseColumn, m31::{PackedBaseField, LOG_N_LANES}, SimdBackend}, poly::{circle::CircleEvaluation, BitReversedOrder}}
 };
 
 use crate::{
@@ -28,10 +19,10 @@ use crate::{
         range_check::range256::Range256LookupElements,
     },
     components::AllLookupElements,
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote, utils::IntoBaseFields},
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote, utils::IntoBaseFields },
 };
 
-use super::{BuiltInExtension, ComponentTrace, FrameworkEvalExt};
+use super::{ BuiltInExtension, ComponentTrace, FrameworkEvalExt };
 
 /// An extension component for initial write set and final read set of the RAM memory checking
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,7 +50,7 @@ impl FrameworkEval for RamInitFinalEval {
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size + 1
     }
-    fn evaluate<E: stwo_prover::constraint_framework::EvalAtRow>(&self, mut eval: E) -> E {
+    fn evaluate<E: stwo_constraint_framework::EvalAtRow>(&self, mut eval: E) -> E {
         // Retrieve all preprocessed columns in the same order as generated
         let preprocessed_ram_addr: Vec<E::F> = (0..WORD_SIZE)
             .map(|i| {
@@ -93,18 +84,18 @@ impl FrameworkEval for RamInitFinalEval {
         // (initial_memory_flag + public_output_flag) * (ram_init_final_addr[i] - public_ram_addr[i]) = 0
         for i in 0..WORD_SIZE {
             eval.add_constraint(
-                (preprocessed_init_flag.clone() + preprocessed_output_flag.clone())
-                    * (ram_init_final_addr[i].clone() - preprocessed_ram_addr[i].clone()),
+                (preprocessed_init_flag.clone() + preprocessed_output_flag.clone()) *
+                    (ram_init_final_addr[i].clone() - preprocessed_ram_addr[i].clone())
             );
         }
         // Enforce: public_output_flag * (ram_final_value - public_output_value) = 0
         eval.add_constraint(
-            preprocessed_output_flag * (ram_final_value.clone() - preprocessed_output_value),
+            preprocessed_output_flag * (ram_final_value.clone() - preprocessed_output_value)
         );
 
         // Enforce RemInitFinalFlag is boolean
         eval.add_constraint(
-            ram_init_final_flag.clone() * (ram_init_final_flag.clone() - E::F::one()),
+            ram_init_final_flag.clone() * (ram_init_final_flag.clone() - E::F::one())
         );
 
         self.constrain_add_initial_values(
@@ -112,20 +103,20 @@ impl FrameworkEval for RamInitFinalEval {
             &ram_init_final_addr,
             preprocessed_init_flag,
             preprocessed_init_value,
-            ram_init_final_flag.clone(),
+            ram_init_final_flag.clone()
         );
         self.constrain_subtract_final_values(
             &mut eval,
             &ram_init_final_addr,
             ram_final_value.clone(),
             &ram_final_counter,
-            ram_init_final_flag,
+            ram_init_final_flag
         );
         self.constrain_add_range256_occurrences(
             &mut eval,
             &ram_init_final_addr,
             ram_final_value,
-            &ram_final_counter,
+            &ram_final_counter
         );
 
         eval.finalize_logup();
@@ -160,14 +151,16 @@ impl RamInitFinalEval {
         ram_init_final_addr: &[E::F],
         preprocessed_init_flag: E::F,
         preprocessed_init_value: E::F,
-        ram_init_final_flag: E::F,
+        ram_init_final_flag: E::F
     ) {
         let mut tuple = vec![];
         // Build the tuple from the RAM address bytes.
-        let addr_low = ram_init_final_addr[0].clone()
-            + ram_init_final_addr[1].clone() * E::F::from((1 << 8).into());
-        let addr_high = ram_init_final_addr[2].clone()
-            + ram_init_final_addr[3].clone() * E::F::from((1 << 8).into());
+        let addr_low =
+            ram_init_final_addr[0].clone() +
+            ram_init_final_addr[1].clone() * E::F::from((1 << 8).into());
+        let addr_high =
+            ram_init_final_addr[2].clone() +
+            ram_init_final_addr[3].clone() * E::F::from((1 << 8).into());
         tuple.push(addr_low);
         tuple.push(addr_high);
         // Add the product of preprocessed init flag and value.
@@ -178,11 +171,9 @@ impl RamInitFinalEval {
         }
         assert_eq!(tuple.len(), 2 * WORD_SIZE_HALVED + 1);
         let numerator = ram_init_final_flag;
-        eval.add_to_relation(RelationEntry::new(
-            &self.load_store_elements,
-            numerator.into(),
-            &tuple,
-        ));
+        eval.add_to_relation(
+            RelationEntry::new(&self.load_store_elements, numerator.into(), &tuple)
+        );
     }
     fn constrain_subtract_final_values<E: EvalAtRow>(
         &self,
@@ -190,61 +181,65 @@ impl RamInitFinalEval {
         ram_init_final_addr: &[E::F],
         ram_final_value: E::F,
         ram_final_counter: &[E::F],
-        ram_init_final_flag: E::F,
+        ram_init_final_flag: E::F
     ) {
         let mut tuple = vec![];
-        let addr_low = ram_init_final_addr[0].clone()
-            + ram_init_final_addr[1].clone() * E::F::from((1 << 8).into());
-        let addr_high = ram_init_final_addr[2].clone()
-            + ram_init_final_addr[3].clone() * E::F::from((1 << 8).into());
+        let addr_low =
+            ram_init_final_addr[0].clone() +
+            ram_init_final_addr[1].clone() * E::F::from((1 << 8).into());
+        let addr_high =
+            ram_init_final_addr[2].clone() +
+            ram_init_final_addr[3].clone() * E::F::from((1 << 8).into());
         tuple.push(addr_low);
         tuple.push(addr_high);
 
         tuple.push(ram_final_value);
 
-        let counter_low = ram_final_counter[0].clone()
-            + ram_final_counter[1].clone() * E::F::from((1 << 8).into());
-        let counter_high = ram_final_counter[2].clone()
-            + ram_final_counter[3].clone() * E::F::from((1 << 8).into());
+        let counter_low =
+            ram_final_counter[0].clone() +
+            ram_final_counter[1].clone() * E::F::from((1 << 8).into());
+        let counter_high =
+            ram_final_counter[2].clone() +
+            ram_final_counter[3].clone() * E::F::from((1 << 8).into());
         tuple.push(counter_low);
         tuple.push(counter_high);
 
         assert_eq!(tuple.len(), 2 * WORD_SIZE_HALVED + 1);
         let numerator = ram_init_final_flag;
-        eval.add_to_relation(RelationEntry::new(
-            &self.load_store_elements,
-            (-numerator).into(),
-            &tuple,
-        ));
+        eval.add_to_relation(
+            RelationEntry::new(&self.load_store_elements, (-numerator).into(), &tuple)
+        );
     }
     fn constrain_add_range256_occurrences<E: EvalAtRow>(
         &self,
         eval: &mut E,
         ram_init_final_addr: &[E::F],
         ram_final_value: E::F,
-        ram_final_counter: &[E::F],
+        ram_final_counter: &[E::F]
     ) {
         for ram_init_final_addr_byte in ram_init_final_addr.iter() {
             let checked_tuple = vec![ram_init_final_addr_byte.clone()];
-            eval.add_to_relation(RelationEntry::new(
-                &self.range256_elements,
-                SecureField::one().into(),
-                &checked_tuple,
-            ));
+            eval.add_to_relation(
+                RelationEntry::new(
+                    &self.range256_elements,
+                    SecureField::one().into(),
+                    &checked_tuple
+                )
+            );
         }
         let checked_tuple = vec![ram_final_value];
-        eval.add_to_relation(RelationEntry::new(
-            &self.range256_elements,
-            SecureField::one().into(),
-            &checked_tuple,
-        ));
+        eval.add_to_relation(
+            RelationEntry::new(&self.range256_elements, SecureField::one().into(), &checked_tuple)
+        );
         for ram_final_counter_byte in ram_final_counter.iter() {
             let checked_tuple = vec![ram_final_counter_byte.clone()];
-            eval.add_to_relation(RelationEntry::new(
-                &self.range256_elements,
-                SecureField::one().into(),
-                &checked_tuple,
-            ));
+            eval.add_to_relation(
+                RelationEntry::new(
+                    &self.range256_elements,
+                    SecureField::one().into(),
+                    &checked_tuple
+                )
+            );
         }
     }
 }
@@ -256,7 +251,7 @@ impl BuiltInExtension for RamInitFinal {
         &self,
         log_size: u32,
         program_trace_ref: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace {
         let preprocessed_cols = Self::preprocessed_columns(log_size, program_trace_ref);
         let original_cols = Self::original_columns(log_size, side_note);
@@ -282,7 +277,7 @@ impl BuiltInExtension for RamInitFinal {
     fn generate_preprocessed_trace(
         &self,
         log_size: u32,
-        program_trace_ref: ProgramTraceRef,
+        program_trace_ref: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let domain = CanonicCoset::new(log_size).circle_domain();
         let preprocessed_cols = Self::preprocessed_columns(log_size, program_trace_ref);
@@ -300,11 +295,8 @@ impl BuiltInExtension for RamInitFinal {
         &self,
         component_trace: ComponentTrace,
         _side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let load_store_elements: &LoadStoreLookupElements = lookup_elements.as_ref();
         let range256_elements: &Range256LookupElements = lookup_elements.as_ref();
         let preprocessed_cols = &component_trace.preprocessed_trace;
@@ -318,21 +310,21 @@ impl BuiltInExtension for RamInitFinal {
             preprocessed_cols,
             original_cols,
             load_store_elements,
-            &mut logup_trace_gen,
+            &mut logup_trace_gen
         );
 
         Self::subtract_final_values(
             log_size,
             original_cols,
             load_store_elements,
-            &mut logup_trace_gen,
+            &mut logup_trace_gen
         );
 
         Self::add_range256_occurrences(
             log_size,
             original_cols,
             range256_elements,
-            &mut logup_trace_gen,
+            &mut logup_trace_gen
         );
 
         logup_trace_gen.finalize_last()
@@ -346,111 +338,88 @@ impl BuiltInExtension for RamInitFinal {
 
 impl RamInitFinal {
     fn preprocessed_columns(log_size: u32, program_trace_ref: ProgramTraceRef) -> Vec<BaseColumn> {
-        let total_len = program_trace_ref.init_memory.len()
-            + program_trace_ref.exit_code.len()
-            + program_trace_ref.public_output.len();
+        let total_len =
+            program_trace_ref.init_memory.len() +
+            program_trace_ref.exit_code.len() +
+            program_trace_ref.public_output.len();
         let padding_length = (1usize << log_size)
             .checked_sub(total_len)
             .expect("log_size too small");
         let mut preprocessed_cols = vec![];
 
         // Iterator for PublicRamAddr: take the address from each group.
-        let public_ram_addr_iter = program_trace_ref
-            .init_memory
+        let public_ram_addr_iter = program_trace_ref.init_memory
             .iter()
             .map(|entry| entry.address)
-            .chain(
-                program_trace_ref
-                    .exit_code
-                    .iter()
-                    .map(|entry| entry.address),
-            )
-            .chain(
-                program_trace_ref
-                    .public_output
-                    .iter()
-                    .map(|entry| entry.address),
-            )
+            .chain(program_trace_ref.exit_code.iter().map(|entry| entry.address))
+            .chain(program_trace_ref.public_output.iter().map(|entry| entry.address))
             .chain(std::iter::repeat_n(0, padding_length));
-        let public_ram_addr_iter = public_ram_addr_iter
-            .map(|address| -> [BaseField; WORD_SIZE] { address.into_base_fields() });
+        let public_ram_addr_iter = public_ram_addr_iter.map(
+            |address| -> [BaseField; WORD_SIZE] { address.into_base_fields() }
+        );
         assert_eq!(public_ram_addr_iter.clone().count(), 1 << log_size);
         (0..WORD_SIZE).for_each(|i| {
-            let base_column =
-                BaseColumn::from_iter(public_ram_addr_iter.clone().map(|address| address[i]));
+            let base_column = BaseColumn::from_iter(
+                public_ram_addr_iter.clone().map(|address| address[i])
+            );
             preprocessed_cols.push(base_column);
         });
 
         // Iterator for PublicInitialMemoryFlag: true for init_memory rows, false for others.
-        let public_initial_memory_flag_iter = program_trace_ref
-            .init_memory
+        let public_initial_memory_flag_iter = program_trace_ref.init_memory
             .iter()
             .map(|_| true)
-            .chain(std::iter::repeat_n(
-                false,
-                program_trace_ref.exit_code.len(),
-            ))
-            .chain(std::iter::repeat_n(
-                false,
-                program_trace_ref.public_output.len(),
-            ))
+            .chain(std::iter::repeat_n(false, program_trace_ref.exit_code.len()))
+            .chain(std::iter::repeat_n(false, program_trace_ref.public_output.len()))
             .chain(std::iter::repeat_n(false, padding_length));
-        assert_eq!(
-            public_initial_memory_flag_iter.clone().count(),
-            1 << log_size
+        assert_eq!(public_initial_memory_flag_iter.clone().count(), 1 << log_size);
+        let public_initial_memory_flag_iter = public_initial_memory_flag_iter.map(
+            |flag| flag.into_base_fields()[0]
         );
-        let public_initial_memory_flag_iter =
-            public_initial_memory_flag_iter.map(|flag| flag.into_base_fields()[0]);
-        let public_initial_memory_flag_column =
-            BaseColumn::from_iter(public_initial_memory_flag_iter);
+        let public_initial_memory_flag_column = BaseColumn::from_iter(
+            public_initial_memory_flag_iter
+        );
         preprocessed_cols.push(public_initial_memory_flag_column);
 
         // Iterator for PublicInitialMemoryValue: use the init_memory value, zero otherwise.
-        let public_initial_memory_value_iter = program_trace_ref
-            .init_memory
+        let public_initial_memory_value_iter = program_trace_ref.init_memory
             .iter()
             .map(|entry| entry.value)
             .chain(std::iter::repeat_n(0, program_trace_ref.exit_code.len()))
-            .chain(std::iter::repeat_n(
-                0,
-                program_trace_ref.public_output.len(),
-            ))
+            .chain(std::iter::repeat_n(0, program_trace_ref.public_output.len()))
             .chain(std::iter::repeat_n(0, padding_length));
-        assert_eq!(
-            public_initial_memory_value_iter.clone().count(),
-            1 << log_size
+        assert_eq!(public_initial_memory_value_iter.clone().count(), 1 << log_size);
+        let public_initial_memory_value_iter = public_initial_memory_value_iter.map(|value|
+            value.into_base_fields()
         );
-        let public_initial_memory_value_iter =
-            public_initial_memory_value_iter.map(|value| value.into_base_fields());
-        let base_column =
-            BaseColumn::from_iter(public_initial_memory_value_iter.map(|value| value[0]));
+        let base_column = BaseColumn::from_iter(
+            public_initial_memory_value_iter.map(|value| value[0])
+        );
         preprocessed_cols.push(base_column);
 
         // Iterator for PublicOutputFlag: false for init_memory rows, true for exit_code and public_output.
-        let public_output_flag_iter =
-            std::iter::repeat_n(false, program_trace_ref.init_memory.len())
-                .chain(program_trace_ref.exit_code.iter().map(|_| true))
-                .chain(program_trace_ref.public_output.iter().map(|_| true))
-                .chain(std::iter::repeat_n(false, padding_length));
+        let public_output_flag_iter = std::iter
+            ::repeat_n(false, program_trace_ref.init_memory.len())
+            .chain(program_trace_ref.exit_code.iter().map(|_| true))
+            .chain(program_trace_ref.public_output.iter().map(|_| true))
+            .chain(std::iter::repeat_n(false, padding_length));
         assert_eq!(public_output_flag_iter.clone().count(), 1 << log_size);
-        let public_output_flag_iter =
-            public_output_flag_iter.map(|flag| flag.into_base_fields()[0]);
+        let public_output_flag_iter = public_output_flag_iter.map(
+            |flag| flag.into_base_fields()[0]
+        );
         let public_output_flag_column = BaseColumn::from_iter(public_output_flag_iter);
         preprocessed_cols.push(public_output_flag_column);
 
         // Iterator for PublicOutputValue: zero for init_memory rows, use the provided value for the others.
-        let public_output_value_iter = std::iter::repeat_n(0, program_trace_ref.init_memory.len())
+        let public_output_value_iter = std::iter
+            ::repeat_n(0, program_trace_ref.init_memory.len())
             .chain(program_trace_ref.exit_code.iter().map(|entry| entry.value))
-            .chain(
-                program_trace_ref
-                    .public_output
-                    .iter()
-                    .map(|entry| entry.value),
-            )
+            .chain(program_trace_ref.public_output.iter().map(|entry| entry.value))
             .chain(std::iter::repeat_n(0, padding_length));
         assert_eq!(public_output_value_iter.clone().count(), 1 << log_size);
-        let public_output_value_iter =
-            public_output_value_iter.map(|value| value.into_base_fields());
+        let public_output_value_iter = public_output_value_iter.map(|value|
+            value.into_base_fields()
+        );
         let base_column = BaseColumn::from_iter(public_output_value_iter.map(|value| value[0]));
         preprocessed_cols.push(base_column);
         assert_eq!(preprocessed_cols.len(), Self::NUM_PREPROCESSED_TRACE_COLS);
@@ -463,21 +432,24 @@ impl RamInitFinal {
         let num_extension = num_rows
             .checked_sub(num_entries)
             .expect("Mistake in ram_init_final_log_size computation");
-        let extended_iter = side_note
-            .rw_mem_check
-            .last_access
+        let extended_iter = side_note.rw_mem_check.last_access
             .iter()
             .map(Some)
             .chain(std::iter::repeat_n(None, num_extension));
         let mut ret = vec![];
-        let ram_init_final_addrs = extended_iter
-            .clone()
-            .map(|entry| entry.map_or_else(|| 0u32, |(address, _last_access)| *address));
-        let ram_init_final_addrs = ram_init_final_addrs
-            .map(|address| -> [BaseField; WORD_SIZE] { address.into_base_fields() });
+        let ram_init_final_addrs = extended_iter.clone().map(|entry|
+            entry.map_or_else(
+                || 0u32,
+                |(address, _last_access)| *address
+            )
+        );
+        let ram_init_final_addrs = ram_init_final_addrs.map(
+            |address| -> [BaseField; WORD_SIZE] { address.into_base_fields() }
+        );
         (0..WORD_SIZE).for_each(|i| {
-            let base_column =
-                BaseColumn::from_iter(ram_init_final_addrs.clone().map(|address| address[i]));
+            let base_column = BaseColumn::from_iter(
+                ram_init_final_addrs.clone().map(|address| address[i])
+            );
             ret.push(base_column);
         });
         let ram_init_final_flag = extended_iter
@@ -485,28 +457,32 @@ impl RamInitFinal {
             .map(|entry| entry.is_some().into_base_fields()[0]);
         let ram_init_final_flag = BaseColumn::from_iter(ram_init_final_flag);
         ret.push(ram_init_final_flag);
-        let ram_final_values = extended_iter.clone().map(|entry| {
-            entry.map_or_else(
-                BaseField::zero,
-                |(_address, (_last_counter, last_value))| BaseField::from(*last_value as u32),
-            )
-        });
+        let ram_final_values = extended_iter
+            .clone()
+            .map(|entry| {
+                entry.map_or_else(BaseField::zero, |(_address, (_last_counter, last_value))|
+                    BaseField::from(*last_value as u32)
+                )
+            });
         let ram_final_values = BaseColumn::from_iter(ram_final_values);
         ret.push(ram_final_values);
         let ram_final_counters = extended_iter.map(|entry| {
             entry.map_or_else(
                 || [BaseField::zero(); WORD_SIZE],
-                |(_address, (last_counter, _last_value))| last_counter.into_base_fields(),
+                |(_address, (last_counter, _last_value))| last_counter.into_base_fields()
             )
         });
         (0..WORD_SIZE).for_each(|i| {
-            let base_column =
-                BaseColumn::from_iter(ram_final_counters.clone().map(|counter| counter[i]));
+            let base_column = BaseColumn::from_iter(
+                ram_final_counters.clone().map(|counter| counter[i])
+            );
             ret.push(base_column);
         });
-        ret.iter().enumerate().for_each(|(i, col)| {
-            assert_eq!(col.length, num_rows, "{}th element has wrong length", i);
-        });
+        ret.iter()
+            .enumerate()
+            .for_each(|(i, col)| {
+                assert_eq!(col.length, num_rows, "{}th element has wrong length", i);
+            });
         assert!(ret.len() == 2 * WORD_SIZE + 2);
         ret
     }
@@ -524,7 +500,7 @@ impl RamInitFinal {
         preprocessed_cols: &[BaseColumn],
         original_cols: &[BaseColumn],
         lookup_element: &LoadStoreLookupElements,
-        logup_trace_gen: &mut LogupTraceGenerator,
+        logup_trace_gen: &mut LogupTraceGenerator
     ) {
         let _preprocessed_ram_init_final_addr = &preprocessed_cols[0..WORD_SIZE];
         let initial_memory_flag = &preprocessed_cols[WORD_SIZE];
@@ -541,14 +517,14 @@ impl RamInitFinal {
 
         let mut logup_col_gen = logup_trace_gen.new_col();
         // Add (address, value, 0)
-        for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+        for vec_row in 0..1 << (log_size - LOG_N_LANES) {
             let mut tuple = vec![];
-            let addr_low = ram_init_final_addr[0].data[vec_row]
-                + ram_init_final_addr[1].data[vec_row]
-                    * PackedBaseField::broadcast((1 << 8).into());
-            let addr_high = ram_init_final_addr[2].data[vec_row]
-                + ram_init_final_addr[3].data[vec_row]
-                    * PackedBaseField::broadcast((1 << 8).into());
+            let addr_low =
+                ram_init_final_addr[0].data[vec_row] +
+                ram_init_final_addr[1].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
+            let addr_high =
+                ram_init_final_addr[2].data[vec_row] +
+                ram_init_final_addr[3].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
             tuple.push(addr_low);
             tuple.push(addr_high);
 
@@ -575,7 +551,7 @@ impl RamInitFinal {
         log_size: u32,
         original_cols: &[BaseColumn],
         lookup_element: &LoadStoreLookupElements,
-        logup_trace_gen: &mut LogupTraceGenerator,
+        logup_trace_gen: &mut LogupTraceGenerator
     ) {
         let ram_init_final_addr = &original_cols[0..WORD_SIZE];
         let ram_init_final_flag = &original_cols[WORD_SIZE];
@@ -584,24 +560,26 @@ impl RamInitFinal {
         assert_eq!(original_cols.len(), WORD_SIZE + 2 + WORD_SIZE);
 
         let mut logup_col_gen = logup_trace_gen.new_col();
-        for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+        for vec_row in 0..1 << (log_size - LOG_N_LANES) {
             let mut tuple = vec![];
 
-            let addr_low = ram_init_final_addr[0].data[vec_row]
-                + ram_init_final_addr[1].data[vec_row]
-                    * PackedBaseField::broadcast((1 << 8).into());
-            let addr_high = ram_init_final_addr[2].data[vec_row]
-                + ram_init_final_addr[3].data[vec_row]
-                    * PackedBaseField::broadcast((1 << 8).into());
+            let addr_low =
+                ram_init_final_addr[0].data[vec_row] +
+                ram_init_final_addr[1].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
+            let addr_high =
+                ram_init_final_addr[2].data[vec_row] +
+                ram_init_final_addr[3].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
             tuple.push(addr_low);
             tuple.push(addr_high);
 
             tuple.push(ram_final_value.data[vec_row]);
 
-            let counter_low = ram_final_counter[0].data[vec_row]
-                + ram_final_counter[1].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
-            let counter_high = ram_final_counter[2].data[vec_row]
-                + ram_final_counter[3].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
+            let counter_low =
+                ram_final_counter[0].data[vec_row] +
+                ram_final_counter[1].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
+            let counter_high =
+                ram_final_counter[2].data[vec_row] +
+                ram_final_counter[3].data[vec_row] * PackedBaseField::broadcast((1 << 8).into());
             tuple.push(counter_low);
             tuple.push(counter_high);
 
@@ -616,7 +594,7 @@ impl RamInitFinal {
         log_size: u32,
         original_cols: &[BaseColumn],
         lookup_element: &Range256LookupElements,
-        logup_trace_gen: &mut LogupTraceGenerator,
+        logup_trace_gen: &mut LogupTraceGenerator
     ) {
         let ram_init_final_addr = &original_cols[0..WORD_SIZE];
         let _ram_init_final_flag = &original_cols[WORD_SIZE];
@@ -626,7 +604,7 @@ impl RamInitFinal {
 
         for ram_init_final_addr_byte in ram_init_final_addr.iter() {
             let mut logup_col_gen = logup_trace_gen.new_col();
-            for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+            for vec_row in 0..1 << (log_size - LOG_N_LANES) {
                 let checked_tuple = vec![ram_init_final_addr_byte.data[vec_row]];
                 let denom = lookup_element.combine(&checked_tuple);
                 logup_col_gen.write_frac(vec_row, SecureField::one().into(), denom);
@@ -635,7 +613,7 @@ impl RamInitFinal {
         }
 
         let mut logup_col_gen = logup_trace_gen.new_col();
-        for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+        for vec_row in 0..1 << (log_size - LOG_N_LANES) {
             let checked_tuple = vec![ram_final_value.data[vec_row]];
             let denom = lookup_element.combine(&checked_tuple);
             logup_col_gen.write_frac(vec_row, SecureField::one().into(), denom);
@@ -643,7 +621,7 @@ impl RamInitFinal {
         logup_col_gen.finalize_col();
         for ram_final_counter_byte in ram_final_counter.iter() {
             let mut logup_col_gen = logup_trace_gen.new_col();
-            for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+            for vec_row in 0..1 << (log_size - LOG_N_LANES) {
                 let checked_tuple = vec![ram_final_counter_byte.data[vec_row]];
                 let denom = lookup_element.combine(&checked_tuple);
                 logup_col_gen.write_frac(vec_row, SecureField::one().into(), denom);
@@ -656,12 +634,7 @@ impl RamInitFinal {
         for (_i, elm) in col.as_slice().iter().enumerate() {
             let checked = elm.0;
             #[cfg(not(test))]
-            assert!(
-                checked < 256,
-                "final value {} out of range at index {}",
-                checked,
-                _i
-            );
+            assert!(checked < 256, "final value {} out of range at index {}", checked, _i);
             side_note.range256.multiplicity[checked as usize] += 1;
         }
     }

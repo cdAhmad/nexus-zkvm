@@ -15,7 +15,7 @@ pub fn create_fib_prover() -> Result<Stwo<Local>, TestError> {
 pub fn main() {
     match prov() {
         Ok(new_hash) => {
-            let hash = "ca611e7d9f8fab9e0a5298ebe9db671b1cd84e7d3663420d3572a4d4f96f60c0";
+            let hash = "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
             if new_hash == hash {
                 println!("equals");
             } else {
@@ -28,7 +28,7 @@ pub fn main() {
 
 fn prov() -> Result<String, TestError> {
     let now = std::time::Instant::now();
-    let inputs = &(5u32, 3791366113u32, 4014011445u32);
+    let inputs = &(5000u32, 3791366113u32, 4014011445u32);
     let prover = create_fib_prover()?;
       let prover_bytes = postcard::to_allocvec(&prover).expect("Failed to serialize prover");
      println!("prover hash {}", format!("{:x}", Keccak256::digest(&prover_bytes)));

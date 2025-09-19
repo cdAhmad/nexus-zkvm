@@ -19,11 +19,12 @@ pub(crate) use nexus_vm::WORD_SIZE;
 
 pub use machine::Proof;
 
-pub use stwo_prover::core::prover::{ProvingError, VerificationError};
+pub use stwo::prover::{ ProvingError };
+pub use stwo::core::verifier::VerificationError;
 
 pub fn prove(
     trace: &impl nexus_vm::trace::Trace,
-    view: &nexus_vm::emulator::View,
+    view: &nexus_vm::emulator::View
 ) -> Result<Proof, ProvingError> {
     machine::Machine::<machine::BaseComponent>::prove(trace, view)
 }
@@ -31,9 +32,9 @@ pub fn prove(
 pub fn prove2(
     trace: &impl nexus_vm::trace::Trace,
     view: &nexus_vm::emulator::View,
-    index:usize
+    index: usize
 ) -> Result<Proof, ProvingError> {
-    machine::Machine::<machine::BaseComponent>::prove2(trace, view,index)
+    machine::Machine::<machine::BaseComponent>::prove2(trace, view, index)
 }
 
 pub fn verify(proof: Proof, view: &nexus_vm::emulator::View) -> Result<(), VerificationError> {
@@ -43,6 +44,6 @@ pub fn verify(proof: Proof, view: &nexus_vm::emulator::View) -> Result<(), Verif
         view.view_associated_data().as_deref().unwrap_or_default(),
         view.get_initial_memory(),
         view.get_exit_code(),
-        view.get_public_output(),
+        view.get_public_output()
     )
 }

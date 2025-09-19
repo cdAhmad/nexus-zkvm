@@ -1,24 +1,30 @@
-use stwo_prover::{
-    constraint_framework::{EvalAtRow, FrameworkEval},
+use stwo::{
     core::{
-        backend::simd::{m31::LOG_N_LANES, SimdBackend},
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
+        fields::{ m31::BaseField, qm31::SecureField },
+        poly::{ circle::{ CanonicCoset } },
         ColumnVec,
     },
 };
 
+use stwo_constraint_framework::{ EvalAtRow, FrameworkEval, LogupTraceGenerator, Relation };
+use stwo::prover::{
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
+    backend::simd::{
+        column::BaseColumn,
+        m31::{ PackedM31, LOG_N_LANES },
+        qm31::PackedSecureField,
+        SimdBackend,
+    },
+    backend::ColumnOps,
+};
 use super::LANE_SIZE;
 use crate::{
     components::{
-        lookups::{KeccakStateLookupElements, LoadStoreLookupElements},
+        lookups::{ KeccakStateLookupElements, LoadStoreLookupElements },
         AllLookupElements,
     },
-    extensions::{BuiltInExtension, ComponentTrace, FrameworkEvalExt},
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote},
+    extensions::{ BuiltInExtension, ComponentTrace, FrameworkEvalExt },
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote },
 };
 
 mod constraints;
@@ -49,12 +55,11 @@ impl FrameworkEval for PermutationMemoryCheckEval {
     }
 
     fn evaluate<E: EvalAtRow>(&self, eval: E) -> E {
-        constraints::PermutationMemoryCheckEval {
+        (constraints::PermutationMemoryCheckEval {
             eval,
             state_lookup_elements: &self.state_lookup_elements,
             memory_lookup_elements: &self.memory_lookup_elements,
-        }
-        .eval()
+        }).eval()
     }
 }
 
@@ -84,7 +89,7 @@ impl BuiltInExtension for PermutationMemoryCheck {
     fn generate_preprocessed_trace(
         &self,
         log_size: u32,
-        _: ProgramTraceRef,
+        _: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let base_col = trace::preprocessed_is_last_column(log_size);
         let domain = CanonicCoset::new(log_size).circle_domain();
@@ -95,7 +100,7 @@ impl BuiltInExtension for PermutationMemoryCheck {
         &self,
         log_size: u32,
         _program_trace_ref: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace {
         trace::generate_keccak_mem_check_trace(log_size, side_note)
     }
@@ -104,17 +109,13 @@ impl BuiltInExtension for PermutationMemoryCheck {
         &self,
         component_trace: ComponentTrace,
         _side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let state_lookup_elements: &KeccakStateLookupElements = lookup_elements.as_ref();
         let memory_lookups: &LoadStoreLookupElements = lookup_elements.as_ref();
-        trace::MemoryCheckLogUpGenerator {
+        (trace::MemoryCheckLogUpGenerator {
             component_trace: &component_trace,
-        }
-        .interaction_trace(state_lookup_elements, memory_lookups)
+        }).interaction_trace(state_lookup_elements, memory_lookups)
     }
 
     fn compute_log_size(&self, side_note: &SideNote) -> u32 {

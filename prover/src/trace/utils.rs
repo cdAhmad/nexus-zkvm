@@ -1,15 +1,21 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use stwo_prover::core::{
-    backend::simd::{column::BaseColumn, SimdBackend},
-    fields::m31::BaseField,
+use rayon::iter::{ IndexedParallelIterator, IntoParallelIterator, ParallelIterator };
+use stwo::core::{ fields::m31::BaseField };
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation };
+use stwo::prover::{
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
+    backend::simd::{
+        column::BaseColumn,
+        m31::{ PackedM31, LOG_N_LANES },
+        qm31::PackedSecureField,
+        SimdBackend,
+    },
+    backend::ColumnOps,
 };
-
 use nexus_vm::WORD_SIZE;
-
-pub use stwo_prover::core::backend::ColumnOps;
+ 
 
 use super::{
-    program::{Word, WordWithEffectiveBits},
+    program::{ Word, WordWithEffectiveBits },
     utils_external::coset_order_to_circle_domain_order,
 };
 
@@ -108,9 +114,9 @@ pub fn finalize_columns(columns: Vec<Vec<BaseField>>) -> Vec<BaseColumn> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stwo_prover::core::{
+    use stwo::core::{
         fields::m31::M31,
-        utils::{bit_reverse_index, coset_index_to_circle_domain_index},
+        utils::{ bit_reverse_index, coset_index_to_circle_domain_index },
     };
 
     #[test]
@@ -121,7 +127,11 @@ mod tests {
         let mut col = BaseColumn::from_iter(reordered.clone());
         <SimdBackend as ColumnOps<BaseField>>::bit_reverse_column(&mut col);
 
-        for (i, reordered) in col.as_slice().iter().enumerate().take(1 << log_size) {
+        for (i, reordered) in col
+            .as_slice()
+            .iter()
+            .enumerate()
+            .take(1 << log_size) {
             let idx = bit_reverse_index(coset_index_to_circle_domain_index(i, log_size), log_size);
             assert_eq!(reordered, &vals[idx]);
         }

@@ -2,29 +2,28 @@
 
 // The target of the 0..127 rangecheck depends on the opcode.
 
-use stwo_prover::{
-    constraint_framework::{logup::LogupTraceGenerator, Relation, RelationEntry},
-    core::backend::simd::m31::PackedBaseField,
-};
+use stwo_constraint_framework::{ LogupTraceGenerator, Relation, RelationEntry };
+use stwo::prover::backend::simd::{column::BaseColumn, m31::{PackedBaseField, LOG_N_LANES}};
 
 use nexus_vm::WORD_SIZE;
 use num_traits::Zero as _;
-use stwo_prover::core::{
-    backend::simd::{column::BaseColumn, m31::LOG_N_LANES},
-    fields::m31::BaseField,
-};
+use stwo::core::{ fields::m31::BaseField };
 
 use crate::{
     components::AllLookupElements,
     extensions::ExtensionsConfig,
     trace::{
-        program_trace::ProgramTraces, sidenote::SideNote, FinalizedTraces, PreprocessedTraces,
-        ProgramStep, TracesBuilder,
+        program_trace::ProgramTraces,
+        sidenote::SideNote,
+        FinalizedTraces,
+        PreprocessedTraces,
+        ProgramStep,
+        TracesBuilder,
     },
     traits::MachineChip,
 };
 
-use crate::column::Column::{self, Helper2, Helper3, IsBge, IsBlt, IsSlt};
+use crate::column::Column::{ self, Helper2, Helper3, IsBge, IsBlt, IsSlt };
 
 /// A Chip for range-checking values for 0..=127
 ///
@@ -32,13 +31,13 @@ use crate::column::Column::{self, Helper2, Helper3, IsBge, IsBlt, IsSlt};
 pub struct Range128Chip;
 
 const LOOKUP_TUPLE_SIZE: usize = 1;
-stwo_prover::relation!(Range128LookupElements, LOOKUP_TUPLE_SIZE);
+stwo_constraint_framework::relation!(Range128LookupElements, LOOKUP_TUPLE_SIZE);
 
 impl MachineChip for Range128Chip {
     fn draw_lookup_elements(
         all_elements: &mut AllLookupElements,
-        channel: &mut impl stwo_prover::core::channel::Channel,
-        _config: &ExtensionsConfig,
+        channel: &mut impl stwo::core::channel::Channel,
+        _config: &ExtensionsConfig
     ) {
         all_elements.insert(Range128LookupElements::draw(channel));
     }
@@ -49,7 +48,7 @@ impl MachineChip for Range128Chip {
         row_idx: usize,
         _step: &Option<ProgramStep>,
         side_note: &mut SideNote,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let [is_slt] = traces.column(row_idx, IsSlt);
         let [is_bge] = traces.column(row_idx, IsBge);
@@ -80,7 +79,7 @@ impl MachineChip for Range128Chip {
         original_traces: &FinalizedTraces,
         _preprocessed_traces: &PreprocessedTraces,
         _program_traces: &ProgramTraces,
-        lookup_element: &AllLookupElements,
+        lookup_element: &AllLookupElements
     ) {
         let lookup_element: &Range128LookupElements = lookup_element.as_ref();
         // Add checked occurrences to logup sum.
@@ -95,27 +94,15 @@ impl MachineChip for Range128Chip {
                 &[is_slt, is_bge, is_blt],
                 original_traces.log_size(),
                 logup_trace_gen,
-                lookup_element,
+                lookup_element
             );
         }
         let [is_jalr] = original_traces.get_base_column(Column::IsJalr);
         let [qt_aux] = original_traces.get_base_column(Column::QtAux);
-        check_col(
-            qt_aux,
-            &[is_jalr],
-            original_traces.log_size(),
-            logup_trace_gen,
-            lookup_element,
-        );
+        check_col(qt_aux, &[is_jalr], original_traces.log_size(), logup_trace_gen, lookup_element);
         let [is_sra] = original_traces.get_base_column(Column::IsSra);
         let [h2_sra, _, _, _] = original_traces.get_base_column(Helper2);
-        check_col(
-            h2_sra,
-            &[is_sra],
-            original_traces.log_size(),
-            logup_trace_gen,
-            lookup_element,
-        );
+        check_col(h2_sra, &[is_sra], original_traces.log_size(), logup_trace_gen, lookup_element);
         let [is_lh] = original_traces.get_base_column(Column::IsLh);
         let [is_lb] = original_traces.get_base_column(Column::IsLb);
         check_col(
@@ -123,15 +110,15 @@ impl MachineChip for Range128Chip {
             &[is_lh, is_lb],
             original_traces.log_size(),
             logup_trace_gen,
-            lookup_element,
+            lookup_element
         );
     }
 
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E: stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &crate::trace::eval::TraceEval<E>,
         lookup_elements: &AllLookupElements,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let lookup_elements: &Range128LookupElements = lookup_elements.as_ref();
 
@@ -145,41 +132,29 @@ impl MachineChip for Range128Chip {
         for col in [Helper2, Helper3].into_iter() {
             let value = trace_eval.column_eval::<WORD_SIZE>(col);
 
-            eval.add_to_relation(RelationEntry::new(
-                lookup_elements,
-                numerator.clone().into(),
-                &[value[3].clone()],
-            ));
+            eval.add_to_relation(
+                RelationEntry::new(lookup_elements, numerator.clone().into(), &[value[3].clone()])
+            );
         }
         let [is_jalr] = trace_eval.column_eval(Column::IsJalr);
         let [qt_aux] = trace_eval.column_eval(Column::QtAux);
         let numerator = is_jalr.clone();
 
-        eval.add_to_relation(RelationEntry::new(
-            lookup_elements,
-            numerator.into(),
-            &[qt_aux.clone()],
-        ));
+        eval.add_to_relation(
+            RelationEntry::new(lookup_elements, numerator.into(), &[qt_aux.clone()])
+        );
 
         let [is_sra] = trace_eval.column_eval(Column::IsSra);
         let [h2_sra, _, _, _] = trace_eval.column_eval::<WORD_SIZE>(Helper2);
         let numerator = is_sra.clone();
 
-        eval.add_to_relation(RelationEntry::new(
-            lookup_elements,
-            numerator.into(),
-            &[h2_sra],
-        ));
+        eval.add_to_relation(RelationEntry::new(lookup_elements, numerator.into(), &[h2_sra]));
 
         let [is_lh] = trace_eval.column_eval(Column::IsLh);
         let [is_lb] = trace_eval.column_eval(Column::IsLb);
         let numerator = is_lh.clone() + is_lb.clone();
 
-        eval.add_to_relation(RelationEntry::new(
-            lookup_elements,
-            numerator.into(),
-            &[qt_aux],
-        ));
+        eval.add_to_relation(RelationEntry::new(lookup_elements, numerator.into(), &[qt_aux]));
     }
 }
 
@@ -198,11 +173,11 @@ fn check_col(
     selectors: &[&BaseColumn],
     log_size: u32,
     logup_trace_gen: &mut LogupTraceGenerator,
-    lookup_element: &Range128LookupElements,
+    lookup_element: &Range128LookupElements
 ) {
     let mut logup_col_gen = logup_trace_gen.new_col();
     // vec_row is row_idx divided by 16. Because SIMD.
-    for vec_row in 0..(1 << (log_size - LOG_N_LANES)) {
+    for vec_row in 0..1 << (log_size - LOG_N_LANES) {
         let checked_tuple = vec![base_column.data[vec_row]];
         let denom = lookup_element.combine(&checked_tuple);
         let mut numerator = PackedBaseField::zero();
@@ -222,14 +197,14 @@ mod test {
     use super::*;
 
     use crate::extensions::ExtensionComponent;
-    use crate::test_utils::{assert_chip, commit_traces, test_params, CommittedTraces};
-    use crate::trace::program_trace::{ProgramTraceRef, ProgramTracesBuilder};
-    use crate::trace::{preprocessed::PreprocessedBuilder, Word};
+    use crate::test_utils::{ assert_chip, commit_traces, test_params, CommittedTraces };
+    use crate::trace::program_trace::{ ProgramTraceRef, ProgramTracesBuilder };
+    use crate::trace::{ preprocessed::PreprocessedBuilder, Word };
     use crate::traits::MachineChip;
 
-    use nexus_vm::emulator::{Emulator, HarvardEmulator, ProgramInfo};
+    use nexus_vm::emulator::{ Emulator, HarvardEmulator, ProgramInfo };
 
-    use stwo_prover::core::fields::qm31::SecureField;
+    use stwo::core::fields::qm31::SecureField;
 
     #[test]
     fn test_range128_chip_success() {
@@ -238,8 +213,8 @@ mod test {
         let program_trace = ProgramTracesBuilder::dummy(LOG_SIZE);
         let mut side_note = SideNote::new(&program_trace, &HarvardEmulator::default().finalize());
         // Write in-range values to ValueA columns.
-        for row_idx in 0..(1 << LOG_SIZE) {
-            let buf: Word = array::from_fn(|i| (row_idx + i) as u8 % 128);
+        for row_idx in 0..1 << LOG_SIZE {
+            let buf: Word = array::from_fn(|i| ((row_idx + i) as u8) % 128);
 
             // TODO: implement and use ToBaseFields for Word, in order to avoid copying here
             if row_idx % 2 == 0 {
@@ -251,7 +226,7 @@ mod test {
                 // not IsSlt row, filling out-of-range values sometimes
                 traces.fill_columns(row_idx, true, IsSlt);
                 traces.fill_columns(row_idx, row_idx as u32, Helper2);
-                traces.fill_columns(row_idx, row_idx as u32 + 100, Helper3);
+                traces.fill_columns(row_idx, (row_idx as u32) + 100, Helper3);
             }
 
             Range128Chip::fill_main_trace(
@@ -259,7 +234,7 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         assert_chip::<Range128Chip>(traces, None);
@@ -280,8 +255,8 @@ mod test {
         let program_traces = ProgramTracesBuilder::new(LOG_SIZE, program_trace_ref);
         let mut side_note = SideNote::new(&program_traces, &HarvardEmulator::default().finalize());
         // Write in-range values to ValueA columns.
-        for row_idx in 0..(1 << LOG_SIZE) {
-            let buf: Word = array::from_fn(|i| (row_idx + i) as u8 % 128);
+        for row_idx in 0..1 << LOG_SIZE {
+            let buf: Word = array::from_fn(|i| ((row_idx + i) as u8) % 128);
             traces.fill_columns(row_idx, buf, Helper3);
             traces.fill_columns(row_idx, true, IsSlt);
 
@@ -290,27 +265,31 @@ mod test {
                 row_idx,
                 &Some(ProgramStep::default()),
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         // modify looked up value
         *traces.column_mut::<{ Helper2.size() }>(11, Helper2)[3] = BaseField::from(128u32);
 
-        let CommittedTraces {
-            claimed_sum,
-            lookup_elements,
-            ..
-        } = commit_traces::<Range128Chip>(config, &twiddles, &traces.finalize(), None);
+        let CommittedTraces { claimed_sum, lookup_elements, .. } = commit_traces::<Range128Chip>(
+            config,
+            &twiddles,
+            &traces.finalize(),
+            None
+        );
 
         // verify that logup sums don't match
         let ext = ExtensionComponent::multiplicity128();
         let component_trace = ext.generate_component_trace(
-            128u32.trailing_zeros(),
+            (128u32).trailing_zeros(),
             program_trace_ref,
-            &mut side_note,
+            &mut side_note
         );
-        let (_, claimed_sum_2) =
-            ext.generate_interaction_trace(component_trace, &side_note, &lookup_elements);
+        let (_, claimed_sum_2) = ext.generate_interaction_trace(
+            component_trace,
+            &side_note,
+            &lookup_elements
+        );
         assert_ne!(claimed_sum + claimed_sum_2, SecureField::zero());
     }
 }

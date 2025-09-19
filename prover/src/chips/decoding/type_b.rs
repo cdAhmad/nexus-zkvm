@@ -1,8 +1,8 @@
-use stwo_prover::core::fields::m31::BaseField;
+use stwo::core::fields::m31::BaseField;
 
 use crate::{
     components::AllLookupElements,
-    extensions::ExtensionsConfig,
+    extensions::{keccak::bitwise_table::constraints, ExtensionsConfig},
     trace::{eval::TraceEval, sidenote::SideNote, ProgramStep, TracesBuilder},
     traits::MachineChip,
     virtual_column::{self, VirtualColumn},
@@ -62,8 +62,7 @@ impl MachineChip for TypeBChip {
         traces.fill_columns(row_idx, op_b0_3, Column::OpB0_3);
         traces.fill_columns(row_idx, op_b4, Column::OpB4);
     }
-
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E:   stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         _lookup_elements: &AllLookupElements,

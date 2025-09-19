@@ -1,17 +1,13 @@
 use num_traits::One;
-use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::BaseField};
-
-use nexus_vm::{riscv::BuiltinOpcode, SyscallCode};
+use stwo::{ core::fields::m31::BaseField };
+use stwo_constraint_framework::{ EvalAtRow };
+use nexus_vm::{ riscv::BuiltinOpcode, SyscallCode };
 
 use crate::{
-    column::Column::{self},
+    column::Column::{ self },
     components::AllLookupElements,
     extensions::ExtensionsConfig,
-    trace::{
-        eval::{trace_eval, TraceEval},
-        sidenote::SideNote,
-        ProgramStep, TracesBuilder,
-    },
+    trace::{ eval::{ trace_eval, TraceEval }, sidenote::SideNote, ProgramStep, TracesBuilder },
     traits::MachineChip,
     virtual_column::IsTypeSys,
 };
@@ -26,16 +22,20 @@ impl MachineChip for SyscallChip {
         row_idx: usize,
         vm_step: &Option<ProgramStep>,
         _side_note: &mut SideNote,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let vm_step = match vm_step {
             Some(vm_step) => vm_step,
-            None => return, // padding
+            None => {
+                return;
+            } // padding
         };
-        if !matches!(
-            vm_step.step.instruction.opcode.builtin(),
-            Some(BuiltinOpcode::ECALL) | Some(BuiltinOpcode::EBREAK)
-        ) {
+        if
+            !matches!(
+                vm_step.step.instruction.opcode.builtin(),
+                Some(BuiltinOpcode::ECALL) | Some(BuiltinOpcode::EBREAK)
+            )
+        {
             return;
         }
 
@@ -71,7 +71,9 @@ impl MachineChip for SyscallChip {
             _ => {
                 panic!(
                     "Unknown syscall number: 0x{:x} and result: {:?}, on row {}",
-                    syscall_number, result, row_idx
+                    syscall_number,
+                    result,
+                    row_idx
                 );
             }
         };
@@ -81,7 +83,7 @@ impl MachineChip for SyscallChip {
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         _lookup_elements: &AllLookupElements,
-        _config: &ExtensionsConfig,
+        _config: &ExtensionsConfig
     ) {
         let [is_type_sys] = IsTypeSys::eval(trace_eval);
         let [is_sys_debug] = trace_eval!(trace_eval, Column::IsSysDebug);
@@ -113,10 +115,7 @@ impl MachineChip for SyscallChip {
             (SyscallCode::Exit as u32, &is_sys_halt),
             (SyscallCode::ReadFromPrivateInput as u32, &is_sys_priv_input),
             (SyscallCode::CycleCount as u32, &is_sys_cycle_count),
-            (
-                SyscallCode::OverwriteStackPointer as u32,
-                &is_sys_stack_reset,
-            ),
+            (SyscallCode::OverwriteStackPointer as u32, &is_sys_stack_reset),
             (SyscallCode::OverwriteHeapPointer as u32, &is_sys_heap_reset),
             (SyscallCode::MemoryAdvise as u32, &is_sys_madvise),
         ];
@@ -125,14 +124,15 @@ impl MachineChip for SyscallChip {
         eval.add_constraint(is_type_sys.clone() * value_b[3].clone());
 
         for (code, is_sys) in syscall_table {
-            let value_codes = u16::try_from(code)
+            let value_codes = u16
+                ::try_from(code)
                 .expect("Syscall code must be in u16 range")
                 .to_le_bytes();
             for (vc, vb) in value_codes.iter().zip(value_b.clone()) {
                 eval.add_constraint(
-                    is_type_sys.clone()
-                        * is_sys.clone()
-                        * (vb - E::F::from(BaseField::from(*vc as u32))),
+                    is_type_sys.clone() *
+                        is_sys.clone() *
+                        (vb - E::F::from(BaseField::from(*vc as u32)))
                 );
             }
         }
@@ -140,15 +140,15 @@ impl MachineChip for SyscallChip {
         // Enforce that one flag is set
         // is_type_sys・(is_sys_debug + is_sys_halt + is_sys_priv_input + is_sys_cycle_count + is_sys_stack_reset + is_sys_heap_reset - 1) = 0
         eval.add_constraint(
-            is_type_sys.clone()
-                * (is_sys_debug.clone()
-                    + is_sys_halt.clone()
-                    + is_sys_priv_input.clone()
-                    + is_sys_cycle_count.clone()
-                    + is_sys_stack_reset.clone()
-                    + is_sys_heap_reset.clone()
-                    + is_sys_madvise.clone()
-                    - E::F::one()),
+            is_type_sys.clone() *
+                (is_sys_debug.clone() +
+                    is_sys_halt.clone() +
+                    is_sys_priv_input.clone() +
+                    is_sys_cycle_count.clone() +
+                    is_sys_stack_reset.clone() +
+                    is_sys_heap_reset.clone() +
+                    is_sys_madvise.clone() -
+                    E::F::one())
         );
 
         // Enforcing values for op_a
@@ -158,22 +158,22 @@ impl MachineChip for SyscallChip {
         let [op_a] = trace_eval!(trace_eval, Column::OpA);
 
         eval.add_constraint(
-            is_type_sys.clone()
-                * (is_sys_debug.clone()
-                    + is_sys_halt.clone()
-                    + is_sys_cycle_count.clone()
-                    + is_sys_madvise.clone())
-                * op_a.clone(),
+            is_type_sys.clone() *
+                (is_sys_debug.clone() +
+                    is_sys_halt.clone() +
+                    is_sys_cycle_count.clone() +
+                    is_sys_madvise.clone()) *
+                op_a.clone()
         );
         eval.add_constraint(
-            is_type_sys.clone()
-                * (is_sys_priv_input.clone() + is_sys_heap_reset.clone())
-                * (E::F::from(BaseField::from(10)) - op_a.clone()),
+            is_type_sys.clone() *
+                (is_sys_priv_input.clone() + is_sys_heap_reset.clone()) *
+                (E::F::from(BaseField::from(10)) - op_a.clone())
         );
         eval.add_constraint(
-            is_type_sys.clone()
-                * is_sys_stack_reset.clone()
-                * (E::F::from(BaseField::from(2)) - op_a.clone()),
+            is_type_sys.clone() *
+                is_sys_stack_reset.clone() *
+                (E::F::from(BaseField::from(2)) - op_a.clone())
         );
 
         // Enforcing ranges for a_val
@@ -182,12 +182,12 @@ impl MachineChip for SyscallChip {
         let value_a = trace_eval!(trace_eval, Column::ValueA);
         for a in value_a.chunks(2) {
             eval.add_constraint(
-                is_type_sys.clone()
-                    * (is_sys_debug.clone()
-                        + is_sys_halt.clone()
-                        + is_sys_cycle_count.clone()
-                        + is_sys_madvise.clone())
-                    * (a[0].clone() + a[1].clone() * E::F::from(BaseField::from(256))),
+                is_type_sys.clone() *
+                    (is_sys_debug.clone() +
+                        is_sys_halt.clone() +
+                        is_sys_cycle_count.clone() +
+                        is_sys_madvise.clone()) *
+                    (a[0].clone() + a[1].clone() * E::F::from(BaseField::from(256)))
             );
         }
     }
@@ -197,19 +197,25 @@ impl MachineChip for SyscallChip {
 mod test {
     use crate::{
         chips::{
-            AddChip, CpuChip, DecodingCheckChip, ProgramMemCheckChip, RangeCheckChip,
+            AddChip,
+            CpuChip,
+            DecodingCheckChip,
+            ProgramMemCheckChip,
+            RangeCheckChip,
             RegisterMemCheckChip,
         },
         test_utils::assert_chip,
         trace::{
-            program::iter_program_steps, program_trace::ProgramTracesBuilder, PreprocessedTraces,
+            program::iter_program_steps,
+            program_trace::ProgramTracesBuilder,
+            PreprocessedTraces,
         },
     };
 
     use super::*;
     use nexus_vm::{
         emulator::InternalView,
-        riscv::{BasicBlock, BuiltinOpcode, Instruction, Opcode},
+        riscv::{ BasicBlock, BuiltinOpcode, Instruction, Opcode },
         trace::k_trace_direct,
         SyscallCode,
     };
@@ -274,7 +280,7 @@ mod test {
                 row_idx,
                 &program_step,
                 &mut side_note,
-                &ExtensionsConfig::default(),
+                &ExtensionsConfig::default()
             );
         }
         assert_chip::<Chips>(traces, Some(program_traces.finalize()));

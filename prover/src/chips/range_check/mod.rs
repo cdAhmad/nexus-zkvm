@@ -1,7 +1,7 @@
 //! Range-checking implementation. Constrains certain columns to only contain values from a specified range,
 //! optionally depending on a flag.
 //!
-//! This is done with the use of [`stwo_prover::constraint_framework::logup::LookupElements`]
+//! This is done with the use of [`stwo_constraint_framework::logup::LookupElements`]
 //! (excluding {0, 1} bool check).
 //!
 //! Currently a verifier is not protected against summing up multiplicity of the tuple to the modulus of M31.

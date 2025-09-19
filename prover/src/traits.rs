@@ -1,13 +1,17 @@
 use impl_trait_for_tuples::impl_for_tuples;
 
 use num_traits::Zero;
-use stwo_prover::{
-    constraint_framework::{logup::LogupTraceGenerator, EvalAtRow},
+use  stwo_constraint_framework::LogupColGenerator;
+use  stwo_constraint_framework::LogupTraceGenerator;
+use  stwo_constraint_framework::EvalAtRow;
+use stwo::prover::backend::simd::column::BaseColumn;
+use stwo::prover::backend::simd::SimdBackend;
+use stwo::prover::poly::{circle::CircleEvaluation, BitReversedOrder};
+use stwo::{
     core::{
-        backend::simd::SimdBackend,
         channel::Channel,
         fields::{m31::BaseField, qm31::SecureField},
-        poly::{circle::CircleEvaluation, BitReversedOrder},
+        
         ColumnVec,
     },
 };
@@ -67,8 +71,8 @@ pub trait MachineChip {
     /// # Example
     ///
     /// ```ignore
-    /// stwo_prover::relation!(LookupElements, 2);
-    /// stwo_prover::relation!(AdditionalLookupElements, 5);
+    /// stwo_constraint_framework::relation!(LookupElements, 2);
+    /// stwo_constraint_framework::relation!(AdditionalLookupElements, 5);
     ///
     /// fn draw_lookup_elements(all_elements: &mut AllLookupElements, channel: &mut impl Channel, config: &ExtensionsConfig) {
     ///     all_elements.insert(LookupElements::draw(channel));

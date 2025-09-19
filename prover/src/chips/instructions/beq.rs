@@ -1,6 +1,6 @@
 use num_traits::One;
-use stwo_prover::{
-    constraint_framework::EvalAtRow,
+use stwo_constraint_framework::EvalAtRow;
+use stwo::{ 
     core::fields::{
         m31::{BaseField, M31},
         FieldExpOps,

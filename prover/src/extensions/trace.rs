@@ -1,16 +1,11 @@
-use stwo_prover::{
-    constraint_framework::{ORIGINAL_TRACE_IDX, PREPROCESSED_TRACE_IDX},
-    core::{
-        backend::simd::{column::BaseColumn, SimdBackend},
-        fields::m31::BaseField,
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
-        ColumnVec,
+use stwo::{
+    prover::{
+        backend::simd::{ column::BaseColumn, SimdBackend },
+        poly::{ circle::CircleEvaluation, BitReversedOrder },
     },
+    core::{ fields::m31::BaseField, poly::{ circle::{ CanonicCoset } }, ColumnVec },
 };
-
+use stwo_constraint_framework::{ ORIGINAL_TRACE_IDX, PREPROCESSED_TRACE_IDX };
 /// Intermediate representation of the component trace.
 pub struct ComponentTrace {
     pub log_size: u32,
@@ -21,7 +16,7 @@ pub struct ComponentTrace {
 impl ComponentTrace {
     pub fn to_circle_evaluation(
         &self,
-        trace_idx: usize,
+        trace_idx: usize
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let domain = CanonicCoset::new(self.log_size).circle_domain();
         let trace = match trace_idx {

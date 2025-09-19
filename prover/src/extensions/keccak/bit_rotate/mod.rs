@@ -5,29 +5,21 @@
 //! columns contain "high" part of the byte that will move to the left, and the remainder -- "low" byte.
 //!
 //! For instance, 0b11111111 with a bit shift 7 will have 0b01111111 as high byte and 0b1000000 as low byte.
-
-use std::{collections::BTreeMap, simd::u32x16};
-
-use stwo_prover::{
-    constraint_framework::{
-        logup::LogupTraceGenerator, preprocessed_columns::PreProcessedColumnId, EvalAtRow,
-        FrameworkEval, Relation, RelationEntry,
-    },
+use stwo_constraint_framework::Relation;
+use std::{ collections::BTreeMap, simd::u32x16 };
+use stwo_constraint_framework::{preprocessed_columns::PreProcessedColumnId, EvalAtRow, FrameworkEval, LogupTraceGenerator, RelationEntry};
+use stwo::{
     core::{
-        backend::simd::{column::BaseColumn, m31::LOG_N_LANES, SimdBackend},
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
+        fields::{ m31::BaseField, qm31::SecureField },
+        poly::circle::CanonicCoset,
         ColumnVec,
-    },
+    }, prover::{backend::simd::{column::BaseColumn, m31::LOG_N_LANES, SimdBackend}, poly::{circle::CircleEvaluation, BitReversedOrder}},
 };
 
 use crate::{
-    components::{lookups::KeccakBitRotateLookupElements, AllLookupElements},
-    extensions::{BuiltInExtension, ComponentTrace, FrameworkEvalExt},
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote},
+    components::{ lookups::KeccakBitRotateLookupElements, AllLookupElements },
+    extensions::{ BuiltInExtension, ComponentTrace, FrameworkEvalExt },
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote },
 };
 
 #[derive(Default)]
@@ -74,17 +66,14 @@ impl FrameworkEval for BitRotateTableEval {
             "rotate_table_bits_low",
         ];
 
-        let preprocessed_columns: Vec<E::F> = PREPROCESSED_COLUMNS
-            .iter()
+        let preprocessed_columns: Vec<E::F> = PREPROCESSED_COLUMNS.iter()
             .map(|&id| eval.get_preprocessed_column(PreProcessedColumnId { id: id.to_owned() }))
             .collect();
 
         let multiplicity = eval.next_trace_mask();
-        eval.add_to_relation(RelationEntry::new(
-            &self.lookup_elements,
-            (-multiplicity).into(),
-            &preprocessed_columns,
-        ));
+        eval.add_to_relation(
+            RelationEntry::new(&self.lookup_elements, (-multiplicity).into(), &preprocessed_columns)
+        );
 
         eval.finalize_logup();
         eval
@@ -114,7 +103,7 @@ impl BuiltInExtension for BitRotateTable {
     fn generate_preprocessed_trace(
         &self,
         _: u32,
-        _: ProgramTraceRef,
+        _: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let base_cols = Self::preprocessed_base_columns();
         let domain = CanonicCoset::new(Self::Eval::LOG_SIZE).circle_domain();
@@ -128,7 +117,7 @@ impl BuiltInExtension for BitRotateTable {
         &self,
         _log_size: u32,
         _program_trace_ref: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace {
         let accum = std::mem::take(&mut side_note.keccak.bit_rotate_accum);
         let preprocessed = Self::preprocessed_base_columns();
@@ -145,18 +134,15 @@ impl BuiltInExtension for BitRotateTable {
         &self,
         component_trace: ComponentTrace,
         _side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let lookup_elements: &KeccakBitRotateLookupElements = lookup_elements.as_ref();
         let preprocessed_trace = &component_trace.preprocessed_trace;
         let multiplicity = &component_trace.original_trace[0];
         let mut logup_trace_gen = LogupTraceGenerator::new(Self::Eval::LOG_SIZE);
 
         let mut logup_col_gen = logup_trace_gen.new_col();
-        for vec_row in 0..(1 << (Self::Eval::LOG_SIZE - LOG_N_LANES)) {
+        for vec_row in 0..1 << (Self::Eval::LOG_SIZE - LOG_N_LANES) {
             let input = preprocessed_trace[0].data[vec_row];
             let shift = preprocessed_trace[1].data[vec_row];
             let bits_high = preprocessed_trace[2].data[vec_row];
@@ -194,13 +180,13 @@ impl BitRotateTable {
             range_iter
                 .clone()
                 .zip(shift_iter.clone())
-                .map(|(byte, shift)| BaseField::from(byte >> (8 - shift))),
+                .map(|(byte, shift)| BaseField::from(byte >> (8 - shift)))
         );
         let bits_low = BaseColumn::from_iter(
             range_iter
                 .clone()
                 .zip(shift_iter.clone())
-                .map(|(byte, shift)| BaseField::from((byte << shift) & 255)),
+                .map(|(byte, shift)| BaseField::from((byte << shift) & 255))
         );
 
         vec![in_column, shift_column, bits_high, bits_low]
@@ -208,8 +194,9 @@ impl BitRotateTable {
 
     fn multiplicity_base_column(accum: BitRotateAccumulator) -> BaseColumn {
         BaseColumn::from_iter(
-            (0..(1 << BitRotateTableEval::LOG_SIZE))
-                .map(|i| accum.counter.get(&i).copied().unwrap_or_default().into()),
+            (0..1 << BitRotateTableEval::LOG_SIZE).map(|i|
+                accum.counter.get(&i).copied().unwrap_or_default().into()
+            )
         )
     }
 }

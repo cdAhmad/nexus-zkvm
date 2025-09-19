@@ -2,25 +2,17 @@
 
 use std::simd::u32x16;
 
-use num_traits::{One, Zero};
-use stwo_prover::core::{
-    backend::simd::{
-        column::BaseColumn,
-        m31::{PackedM31, LOG_N_LANES},
-    },
-    fields::m31::BaseField,
-};
+use num_traits::{ One, Zero };
+use stwo::prover::backend::simd::{ column::BaseColumn, m31::{ PackedM31, LOG_N_LANES } };
+use stwo::core::{ fields::m31::BaseField };
 
-use super::{
-    constants::{LANE_SIZE, RC, ROTATIONS, ROUNDS},
-    keccak_round,
-};
+use super::{ constants::{ LANE_SIZE, RC, ROTATIONS, ROUNDS }, keccak_round };
 use crate::{
     extensions::{
-        keccak::{bit_rotate::BitRotateAccumulator, bitwise_table::BitwiseAccumulator},
+        keccak::{ bit_rotate::BitRotateAccumulator, bitwise_table::BitwiseAccumulator },
         trace::ComponentTrace,
     },
-    trace::sidenote::keccak::{BitOp, KeccakSideNote, RoundLookups},
+    trace::sidenote::keccak::{ BitOp, KeccakSideNote, RoundLookups },
 };
 
 struct TraceBuilder<'a> {
@@ -39,7 +31,7 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
         log_n_instances: u32,
         offset: usize,
         rounds: usize,
-        side_note: &'b mut KeccakSideNote,
+        side_note: &'b mut KeccakSideNote
     ) -> Self {
         let round_constants = round_constants_to_simd(log_n_instances, offset, rounds);
         let log_size = log_n_instances + rounds.ilog2();
@@ -64,9 +56,7 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
         let mut allocated = vec![];
         for lanes in lanes.as_mut().chunks_exact_mut(LANE_SIZE) {
             allocated.push(self.trace.len());
-            lanes
-                .iter_mut()
-                .for_each(|lane| self.trace.push(std::mem::take(lane)));
+            lanes.iter_mut().for_each(|lane| self.trace.push(std::mem::take(lane)));
         }
         allocated
     }
@@ -86,9 +76,7 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
         }
 
         let xor = self.allocate_lanes(&mut xor)[0];
-        self.round_lookups
-            .bitwise_lookups
-            .push(([a, b, xor], BitOp::Xor));
+        self.round_lookups.bitwise_lookups.push(([a, b, xor], BitOp::Xor));
         xor
     }
 
@@ -125,9 +113,7 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
         }
 
         let result = self.allocate_lanes(&mut result)[0];
-        self.round_lookups
-            .bitwise_lookups
-            .push(([a, b, result], BitOp::BitNotAnd));
+        self.round_lookups.bitwise_lookups.push(([a, b, result], BitOp::BitNotAnd));
         result
     }
 
@@ -152,7 +138,10 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
                     (b << bits) & u32x16::splat((1 << 8) - 1)
                 })
                 .collect();
-            bytes_high[i] = col.iter().map(|b| b >> (8 - bits)).collect();
+            bytes_high[i] = col
+                .iter()
+                .map(|b| b >> (8 - bits))
+                .collect();
         }
 
         for i in 0..LANE_SIZE {
@@ -168,9 +157,7 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
 
         let low = self.allocate_lanes(bytes_low)[0];
         let high = self.allocate_lanes(bytes_high)[0];
-        self.round_lookups
-            .bitwise_lookups
-            .push(([a, high, low], BitOp::Rotation(bits)));
+        self.round_lookups.bitwise_lookups.push(([a, high, low], BitOp::Rotation(bits)));
 
         self.allocate_lanes(&mut out)[0]
     }
@@ -209,10 +196,9 @@ impl<'b: 'a, 'a> TraceBuilder<'a> {
 pub fn round_constants_to_simd(
     log_n_instances: u32,
     offset: usize,
-    rounds: usize,
+    rounds: usize
 ) -> [Vec<u32x16>; LANE_SIZE] {
-    let rc_iter = RC[offset..offset + rounds]
-        .iter()
+    let rc_iter = RC[offset..offset + rounds].iter()
         .copied()
         .cycle()
         .take((1 << log_n_instances) * rounds);
@@ -225,13 +211,7 @@ pub fn round_constants_to_simd(
     }
     rc_bytes
         .into_iter()
-        .map(|col| {
-            col.iter()
-                .copied()
-                .array_chunks()
-                .map(u32x16::from_array)
-                .collect()
-        })
+        .map(|col| { col.iter().copied().array_chunks().map(u32x16::from_array).collect() })
         .collect::<Vec<Vec<u32x16>>>()
         .try_into()
         .expect("lane size mismatch")
@@ -240,7 +220,7 @@ pub fn round_constants_to_simd(
 pub fn convert_input_to_simd(
     inputs: &[[u64; 25]],
     offset: usize,
-    rounds: usize,
+    rounds: usize
 ) -> (Vec<Vec<u32x16>>, Vec<[u64; 25]>) {
     assert!(rounds.is_power_of_two());
 
@@ -267,29 +247,18 @@ pub fn convert_input_to_simd(
 
     for (skip_row, round_input) in round_inputs
         .chain(std::iter::repeat_with(|| (false, [0u64; 25])))
-        .take(num_rows + inputs.len())
-    {
+        .take(num_rows + inputs.len()) {
         if skip_row {
             rem.push(round_input);
             continue;
         }
-        for (col, byte) in round_input
-            .into_iter()
-            .flat_map(u64::to_le_bytes)
-            .enumerate()
-        {
+        for (col, byte) in round_input.into_iter().flat_map(u64::to_le_bytes).enumerate() {
             trace[col].push(byte as u32);
         }
     }
     let trace = trace
         .into_iter()
-        .map(|col| {
-            col.iter()
-                .copied()
-                .array_chunks()
-                .map(u32x16::from_array)
-                .collect()
-        })
+        .map(|col| { col.iter().copied().array_chunks().map(u32x16::from_array).collect() })
         .collect();
     (trace, rem)
 }
@@ -300,7 +269,7 @@ pub fn generate_round_component_trace(
     offset: usize,
     rounds: usize,
     real_rows: usize,
-    side_note: &mut KeccakSideNote,
+    side_note: &mut KeccakSideNote
 ) -> ComponentTrace {
     let mut builder = TraceBuilder::new(log_n_instances, offset, rounds, side_note);
     let log_size = builder.log_size;
@@ -337,8 +306,10 @@ pub fn generate_round_component_trace(
     let mut b = [0usize; 25];
     for x in 0..5 {
         for y in 0..5 {
-            b[y + ((2 * x + 3 * y) % 5) * 5] =
-                builder.rotate_left(a[x + y * 5], ROTATIONS[x + y * 5] as u32);
+            b[y + ((2 * x + 3 * y) % 5) * 5] = builder.rotate_left(
+                a[x + y * 5],
+                ROTATIONS[x + y * 5] as u32
+            );
         }
     }
 
@@ -346,7 +317,7 @@ pub fn generate_round_component_trace(
     // A[x,y] = B[x,y] xor ((not B[x+1,y]) and B[x+2,y]),  for (x,y) in (0…4,0…4)
     for x in 0..5 {
         for y in 0..5 {
-            let rhs = builder.bitwise_not_and(b[(x + 1) % 5 + y * 5], b[(x + 2) % 5 + y * 5]);
+            let rhs = builder.bitwise_not_and(b[((x + 1) % 5) + y * 5], b[((x + 2) % 5) + y * 5]);
             a[x + y * 5] = builder.xor2(b[x + y * 5], rhs);
         }
     }
@@ -356,12 +327,8 @@ pub fn generate_round_component_trace(
     builder.output_state_lookup(output_state);
     let mut component_trace = builder.into_component_trace();
 
-    component_trace
-        .preprocessed_trace
-        .push(preprocessed_is_last_column(log_size));
-    component_trace
-        .original_trace
-        .push(get_is_padding_base_column(log_size, real_rows));
+    component_trace.preprocessed_trace.push(preprocessed_is_last_column(log_size));
+    component_trace.original_trace.push(get_is_padding_base_column(log_size, real_rows));
     component_trace
 }
 
@@ -369,11 +336,7 @@ pub(crate) fn get_is_padding_base_column(log_size: u32, real_rows: usize) -> Bas
     let len = 1 << log_size;
     (0..len)
         .map(|i| {
-            if i < real_rows {
-                BaseField::zero()
-            } else {
-                BaseField::one()
-            }
+            if i < real_rows { BaseField::zero() } else { BaseField::one() }
         })
         .collect()
 }
@@ -396,7 +359,7 @@ fn pad_input(input: Vec<Vec<u32x16>>, log_size: u32) -> Vec<Vec<u32x16>> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{RngCore, SeedableRng};
+    use rand::{ RngCore, SeedableRng };
     use rand_chacha::ChaCha12Rng;
 
     use super::*;
@@ -413,10 +376,10 @@ mod tests {
     #[test]
     fn round_initial_states_match() {
         let mut rng = ChaCha12Rng::from_seed(Default::default());
-        let inputs: Vec<[u64; 25]> =
-            std::iter::repeat_with(|| std::array::from_fn(|_idx| rng.next_u64()))
-                .take(20)
-                .collect();
+        let inputs: Vec<[u64; 25]> = std::iter
+            ::repeat_with(|| std::array::from_fn(|_idx| rng.next_u64()))
+            .take(20)
+            .collect();
 
         let (_, rem) = convert_input_to_simd(&inputs, 0, 1 << 4);
 

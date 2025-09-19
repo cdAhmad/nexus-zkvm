@@ -1,20 +1,16 @@
 use itertools::Itertools;
 use nexus_vm::WORD_SIZE;
 use num_traits::Zero;
-use stwo_prover::core::{
-    backend::simd::{column::BaseColumn, m31::LOG_N_LANES, SimdBackend},
-    fields::m31::BaseField,
-    poly::{
-        circle::{CanonicCoset, CircleEvaluation},
-        BitReversedOrder,
-    },
-    ColumnVec,
+use stwo::prover::{
+    backend::simd::{ column::BaseColumn, m31::LOG_N_LANES, SimdBackend },
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
 };
+use stwo::core::{ fields::m31::BaseField, poly::{ circle::{ CanonicCoset } }, ColumnVec };
 
-use super::utils::{finalize_columns, IntoBaseFields};
+use super::utils::{ finalize_columns, IntoBaseFields };
 use crate::column::Column;
 
-/// Main ([`stwo_prover::constraint_framework::ORIGINAL_TRACE_IDX`]) trace builder which implements
+/// Main ([`stwo_constraint_framework::ORIGINAL_TRACE_IDX`]) trace builder which implements
 /// mutable access to columns.
 ///
 /// Values are stored in original (coset) order.
@@ -76,7 +72,7 @@ impl TracesBuilder {
         &mut self,
         row: usize,
         value: T,
-        col: Column,
+        col: Column
     ) {
         let base_field_values = value.into_base_fields();
         self.fill_columns_base_field(row, &base_field_values, col);
@@ -108,7 +104,7 @@ impl TracesBuilder {
         row: usize,
         src: Column,
         dst: Column,
-        selector: Column,
+        selector: Column
     ) {
         let src_len = src.size();
         let dst_len = dst.size();
@@ -156,7 +152,7 @@ impl FinalizedTraces {
     }
 
     pub fn into_circle_evaluation(
-        self,
+        self
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let domain = CanonicCoset::new(self.log_size).circle_domain();
         self.cols

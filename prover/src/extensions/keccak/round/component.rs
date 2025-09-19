@@ -1,38 +1,45 @@
-use stwo_prover::{
-    constraint_framework::{FrameworkComponent, TraceLocationAllocator},
+use stwo_constraint_framework::{
+    FrameworkComponent,
+    Relation,
+    RelationEntry,
+    TraceLocationAllocator,
+};
+use stwo::prover::{
+    backend::simd::{ column::BaseColumn, m31::{ PackedM31, LOG_N_LANES }, SimdBackend },
+    ComponentProver,
+    poly::{ circle::CircleEvaluation, BitReversedOrder },
+};
+use stwo::{
     core::{
-        air::{Component, ComponentProver},
-        backend::simd::{
-            column::BaseColumn,
-            m31::{PackedM31, LOG_N_LANES},
-            SimdBackend,
-        },
-        fields::{m31::BaseField, qm31::SecureField},
-        poly::{
-            circle::{CanonicCoset, CircleEvaluation},
-            BitReversedOrder,
-        },
+        air::{ Component },
+        fields::{ m31::BaseField, qm31::SecureField },
+        poly::{ circle::{ CanonicCoset } },
         ColumnVec,
     },
 };
 
-use super::{constants::LANE_SIZE, eval::KeccakRoundEval, interaction_trace::RoundLogUpGenerator};
+use super::{ constants::LANE_SIZE, eval::KeccakRoundEval, interaction_trace::RoundLogUpGenerator };
 use crate::{
     components::{
         lookups::{
-            KeccakBitNotAndLookupElements, KeccakBitRotateLookupElements,
-            KeccakStateLookupElements, KeccakXorLookupElements,
+            KeccakBitNotAndLookupElements,
+            KeccakBitRotateLookupElements,
+            KeccakStateLookupElements,
+            KeccakXorLookupElements,
         },
         AllLookupElements,
     },
     extensions::{
         keccak::round::trace::{
-            convert_input_to_simd, generate_round_component_trace, preprocessed_is_last_column,
+            convert_input_to_simd,
+            generate_round_component_trace,
+            preprocessed_is_last_column,
             round_constants_to_simd,
         },
-        BuiltInExtension, ComponentTrace,
+        BuiltInExtension,
+        ComponentTrace,
     },
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote},
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote },
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -48,7 +55,7 @@ impl BuiltInExtension for KeccakRound {
     fn generate_preprocessed_trace(
         &self,
         log_size: u32,
-        _: ProgramTraceRef,
+        _: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         let log_n_instances = log_size - self.rounds.ilog2();
         let domain = CanonicCoset::new(log_size).circle_domain();
@@ -57,9 +64,10 @@ impl BuiltInExtension for KeccakRound {
         rc.into_iter()
             .map(|eval| {
                 BaseColumn::from_simd(
-                    eval.into_iter()
+                    eval
+                        .into_iter()
                         .map(|v| unsafe { PackedM31::from_simd_unchecked(v) })
-                        .collect(),
+                        .collect()
                 )
             })
             .chain(std::iter::once(preprocessed_is_last_column(log_size)))
@@ -73,7 +81,7 @@ impl BuiltInExtension for KeccakRound {
         &self,
         log_size: u32,
         _: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace {
         let log_n_instances = log_size - self.rounds.ilog2();
 
@@ -88,7 +96,7 @@ impl BuiltInExtension for KeccakRound {
             self.offset,
             self.rounds,
             real_rows,
-            &mut side_note.keccak,
+            &mut side_note.keccak
         )
     }
 
@@ -96,24 +104,20 @@ impl BuiltInExtension for KeccakRound {
         &self,
         component_trace: ComponentTrace,
         side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    ) {
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField) {
         let state_lookup_elements: &KeccakStateLookupElements = lookup_elements.as_ref();
         let xor_lookup_elements: &KeccakXorLookupElements = lookup_elements.as_ref();
         let bit_not_and_lookup_elements: &KeccakBitNotAndLookupElements = lookup_elements.as_ref();
         let bit_rotate_lookup_elements: &KeccakBitRotateLookupElements = lookup_elements.as_ref();
-        RoundLogUpGenerator {
+        (RoundLogUpGenerator {
             component_trace: &component_trace,
             round_lookups: &side_note.keccak.round_lookups[self.index],
-        }
-        .interaction_trace(
+        }).interaction_trace(
             state_lookup_elements,
             xor_lookup_elements,
             bit_not_and_lookup_elements,
-            bit_rotate_lookup_elements,
+            bit_rotate_lookup_elements
         )
     }
 
@@ -137,24 +141,26 @@ impl BuiltInExtension for KeccakRound {
         tree_span_provider: &mut TraceLocationAllocator,
         lookup_elements: &AllLookupElements,
         log_size: u32,
-        claimed_sum: SecureField,
+        claimed_sum: SecureField
     ) -> Box<dyn ComponentProver<SimdBackend>> {
         let state_lookup_elements: &KeccakStateLookupElements = lookup_elements.as_ref();
         let xor_lookup_elements: &KeccakXorLookupElements = lookup_elements.as_ref();
         let bit_not_and_lookup_elements: &KeccakBitNotAndLookupElements = lookup_elements.as_ref();
         let bit_rotate_lookup_elements: &KeccakBitRotateLookupElements = lookup_elements.as_ref();
-        Box::new(FrameworkComponent::new(
-            tree_span_provider,
-            KeccakRoundEval {
-                index: self.index,
-                log_size,
-                state_lookup_elements: state_lookup_elements.clone(),
-                xor_lookup_elements: xor_lookup_elements.clone(),
-                bit_not_and_lookup_elements: bit_not_and_lookup_elements.clone(),
-                bit_rotate_lookup_elements: bit_rotate_lookup_elements.clone(),
-            },
-            claimed_sum,
-        ))
+        Box::new(
+            FrameworkComponent::new(
+                tree_span_provider,
+                KeccakRoundEval {
+                    index: self.index,
+                    log_size,
+                    state_lookup_elements: state_lookup_elements.clone(),
+                    xor_lookup_elements: xor_lookup_elements.clone(),
+                    bit_not_and_lookup_elements: bit_not_and_lookup_elements.clone(),
+                    bit_rotate_lookup_elements: bit_rotate_lookup_elements.clone(),
+                },
+                claimed_sum
+            )
+        )
     }
 
     fn to_component(
@@ -162,23 +168,25 @@ impl BuiltInExtension for KeccakRound {
         tree_span_provider: &mut TraceLocationAllocator,
         lookup_elements: &AllLookupElements,
         log_size: u32,
-        claimed_sum: SecureField,
+        claimed_sum: SecureField
     ) -> Box<dyn Component> {
         let state_lookup_elements: &KeccakStateLookupElements = lookup_elements.as_ref();
         let xor_lookup_elements: &KeccakXorLookupElements = lookup_elements.as_ref();
         let bit_not_and_lookup_elements: &KeccakBitNotAndLookupElements = lookup_elements.as_ref();
         let bit_rotate_lookup_elements: &KeccakBitRotateLookupElements = lookup_elements.as_ref();
-        Box::new(FrameworkComponent::new(
-            tree_span_provider,
-            KeccakRoundEval {
-                index: self.index,
-                log_size,
-                state_lookup_elements: state_lookup_elements.clone(),
-                xor_lookup_elements: xor_lookup_elements.clone(),
-                bit_not_and_lookup_elements: bit_not_and_lookup_elements.clone(),
-                bit_rotate_lookup_elements: bit_rotate_lookup_elements.clone(),
-            },
-            claimed_sum,
-        ))
+        Box::new(
+            FrameworkComponent::new(
+                tree_span_provider,
+                KeccakRoundEval {
+                    index: self.index,
+                    log_size,
+                    state_lookup_elements: state_lookup_elements.clone(),
+                    xor_lookup_elements: xor_lookup_elements.clone(),
+                    bit_not_and_lookup_elements: bit_not_and_lookup_elements.clone(),
+                    bit_rotate_lookup_elements: bit_rotate_lookup_elements.clone(),
+                },
+                claimed_sum
+            )
+        )
     }
 }

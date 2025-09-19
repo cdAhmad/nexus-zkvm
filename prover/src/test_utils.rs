@@ -1,4 +1,4 @@
-use stwo_prover::{
+use stwo::{
     constraint_framework::{assert_constraints_on_polys, EvalAtRow},
     core::{
         backend::simd::SimdBackend,
@@ -29,7 +29,7 @@ pub(crate) fn test_params(
     log_size: u32,
 ) -> (
     PcsConfig,
-    stwo_prover::core::poly::twiddles::TwiddleTree<SimdBackend>,
+    stwo::core::poly::twiddles::TwiddleTree<SimdBackend>,
 ) {
     let config = PcsConfig::default();
     let twiddles = SimdBackend::precompute_twiddles(
@@ -54,7 +54,7 @@ pub(crate) struct CommittedTraces<'a> {
 /// Testing utility for filling in traces
 pub(crate) fn commit_traces<'a, C: MachineChip>(
     config: PcsConfig,
-    twiddles: &'a stwo_prover::core::poly::twiddles::TwiddleTree<SimdBackend>,
+    twiddles: &'a stwo::core::poly::twiddles::TwiddleTree<SimdBackend>,
     traces: &FinalizedTraces,
     program_traces: Option<ProgramTraces>,
 ) -> CommittedTraces<'a> {

@@ -1,4 +1,4 @@
-use stwo_prover::core::fields::m31::BaseField;
+use stwo::core::fields::m31::BaseField;
 
 use crate::{
     components::AllLookupElements,
@@ -60,7 +60,7 @@ impl MachineChip for TypeSChip {
         traces.fill_columns(row_idx, op_b4, Column::OpB4);
     }
 
-    fn add_constraints<E: stwo_prover::constraint_framework::EvalAtRow>(
+    fn add_constraints<E: stwo_constraint_framework::EvalAtRow>(
         eval: &mut E,
         trace_eval: &TraceEval<E>,
         _lookup_elements: &AllLookupElements,

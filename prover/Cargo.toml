@@ -21,8 +21,9 @@ serde.workspace = true
 impl-trait-for-tuples = "0.2.2"
 itertools = "0.13.0"
 num-traits = { workspace = true }
-stwo-prover = { workspace = true }
 tiny-keccak = { workspace = true }
+stwo={workspace=true}
+stwo-constraint-framework={workspace=true}
 
 [dev-dependencies]
 rand = "0.8"

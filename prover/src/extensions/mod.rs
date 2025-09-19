@@ -15,23 +15,31 @@
 //! the crate to avoid misuse.
 
 use ram_init_final::RamInitFinal;
-use stwo_prover::{
-    constraint_framework::{
-        FrameworkComponent, FrameworkEval, InfoEvaluator, TraceLocationAllocator,
+use stwo_constraint_framework::{
+    FrameworkComponent,
+    FrameworkEval,
+    InfoEvaluator,
+    TraceLocationAllocator,
+};
+use stwo::{
+    prover::{
+        backend::simd::column::BaseColumn,
+        poly::circle::CircleEvaluation,
+        ComponentProver,
+        poly::BitReversedOrder,
+        backend::simd::SimdBackend,
     },
     core::{
-        air::{Component, ComponentProver},
-        backend::simd::SimdBackend,
-        fields::{m31::BaseField, qm31::SecureField},
+        air::{ Component },
+        fields::{ m31::BaseField, qm31::SecureField },
         pcs::TreeVec,
-        poly::{circle::CircleEvaluation, BitReversedOrder},
         ColumnVec,
     },
 };
 
 use crate::{
     components::AllLookupElements,
-    trace::{program_trace::ProgramTraceRef, sidenote::SideNote},
+    trace::{ program_trace::ProgramTraceRef, sidenote::SideNote },
 };
 
 pub(crate) mod bit_op;
@@ -53,11 +61,15 @@ pub(crate) use trace::ComponentTrace;
 
 use bit_op::BitOpMultiplicity;
 use final_reg::FinalReg;
-use multiplicity::{Multiplicity128, Multiplicity16, Multiplicity256, Multiplicity32};
+use multiplicity::{ Multiplicity128, Multiplicity16, Multiplicity256, Multiplicity32 };
 use multiplicity8::Multiplicity8;
 
 use keccak::{
-    bit_rotate::BitRotateTable, BitNotAndTable, KeccakRound, PermutationMemoryCheck, XorTable,
+    bit_rotate::BitRotateTable,
+    BitNotAndTable,
+    KeccakRound,
+    PermutationMemoryCheck,
+    XorTable,
 };
 
 trait FrameworkEvalExt: FrameworkEval + Sync + 'static {
@@ -71,38 +83,37 @@ trait BuiltInExtension {
     fn generate_preprocessed_trace(
         &self,
         log_size: u32,
-        program_trace_ref: ProgramTraceRef,
+        program_trace_ref: ProgramTraceRef
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>;
 
     fn generate_component_trace(
         &self,
         log_size: u32,
         program_trace_ref: ProgramTraceRef,
-        side_note: &mut SideNote,
+        side_note: &mut SideNote
     ) -> ComponentTrace;
 
     fn generate_interaction_trace(
         &self,
         component_trace: ComponentTrace,
         side_note: &SideNote,
-        lookup_elements: &AllLookupElements,
-    ) -> (
-        ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>,
-        SecureField,
-    );
+        lookup_elements: &AllLookupElements
+    ) -> (ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>, SecureField);
 
     fn to_component_prover(
         &self,
         tree_span_provider: &mut TraceLocationAllocator,
         lookup_elements: &AllLookupElements,
         log_size: u32,
-        claimed_sum: SecureField,
+        claimed_sum: SecureField
     ) -> Box<dyn ComponentProver<SimdBackend>> {
-        Box::new(FrameworkComponent::new(
-            tree_span_provider,
-            Self::Eval::new(log_size, lookup_elements),
-            claimed_sum,
-        ))
+        Box::new(
+            FrameworkComponent::new(
+                tree_span_provider,
+                Self::Eval::new(log_size, lookup_elements),
+                claimed_sum
+            )
+        )
     }
 
     fn to_component(
@@ -110,22 +121,24 @@ trait BuiltInExtension {
         tree_span_provider: &mut TraceLocationAllocator,
         lookup_elements: &AllLookupElements,
         log_size: u32,
-        claimed_sum: SecureField,
+        claimed_sum: SecureField
     ) -> Box<dyn Component> {
-        Box::new(FrameworkComponent::new(
-            tree_span_provider,
-            Self::Eval::new(log_size, lookup_elements),
-            claimed_sum,
-        ))
+        Box::new(
+            FrameworkComponent::new(
+                tree_span_provider,
+                Self::Eval::new(log_size, lookup_elements),
+                claimed_sum
+            )
+        )
     }
 
     fn compute_log_size(&self, side_note: &SideNote) -> u32;
 
     fn trace_sizes(&self, log_size: u32) -> TreeVec<Vec<u32>> {
-        <Self as BuiltInExtension>::Eval::dummy(log_size)
+        <Self as BuiltInExtension>::Eval
+            ::dummy(log_size)
             .evaluate(InfoEvaluator::empty())
-            .mask_offsets
-            .as_cols_ref()
+            .mask_offsets.as_cols_ref()
             .map_cols(|_| log_size)
     }
 
@@ -189,7 +202,7 @@ impl ExtensionComponent {
 // will require type-erased version of this trait since the prover crate cannot know details of implementation.
 // Such precompiles can be implemented as a separate `Custom(Box<dyn ...>)` variant.
 macro_rules! extension_dispatch {
-    ($vis:vis enum $_enum:ident { $( $name:ident ),* $(,)? }) => {
+    ($vis:vis enum $_enum:ident { $($name:ident),* $(,)? }) => {
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         $vis enum $_enum {
             $($name($name),)*
