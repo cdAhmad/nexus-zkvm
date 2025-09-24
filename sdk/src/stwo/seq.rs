@@ -1,11 +1,12 @@
 use crate::compile::Compile;
 use crate::traits::*;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{ de::DeserializeOwned, Deserialize, Serialize };
+use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
 use thiserror::Error;
 
-use crate::error::{BuildError, ConfigurationError, IOError, PathError};
+use crate::error::{ BuildError, ConfigurationError, IOError, PathError };
 
 /// Errors that occur while proving using Stwo.
 #[derive(Debug, Error)]
@@ -48,6 +49,7 @@ pub enum Error {
 }
 
 /// Prover for the Nexus zkVM, when using Stwo.
+ #[derive(Serialize, Deserialize)]
 pub struct Stwo<C: Compute = Local> {
     /// The program to be proven.
     pub elf: nexus_core::nvm::ElfFile,
@@ -63,10 +65,9 @@ pub struct Proof {
     memory_layout: nexus_core::nvm::internals::LinearMemoryLayout,
 }
 
-impl<C: Compute> ByGuestCompilation for Stwo<C>
-where
-    Stwo<C>: Prover,
-    <Stwo<C> as Prover>::Error: From<BuildError>,
+impl<C: Compute> ByGuestCompilation
+    for Stwo<C>
+    where Stwo<C>: Prover, <Stwo<C> as Prover>::Error: From<BuildError>
 {
     /// Construct a new proving instance through dynamic compilation (see [`compile`](crate::compile)).
     fn compile(compiler: &mut impl Compile) -> Result<Self, <Self as Prover>::Error> {
@@ -100,7 +101,7 @@ impl Prover for Stwo<Local> {
     fn run_with_input<S: Serialize + Sized, T: Serialize + DeserializeOwned + Sized>(
         &self,
         private_input: &S,
-        public_input: &T,
+        public_input: &T
     ) -> Result<Self::View, <Self as Prover>::Error> {
         let mut private_encoded = postcard::to_stdvec(&private_input).map_err(IOError::from)?;
         if !private_encoded.is_empty() {
@@ -129,7 +130,7 @@ impl Prover for Stwo<Local> {
             self.ad.as_slice(),
             public_encoded.as_slice(),
             private_encoded.as_slice(),
-            1,
+            1
         )?; // todo: run without tracing?
 
         Ok(view)
@@ -139,7 +140,7 @@ impl Prover for Stwo<Local> {
     fn prove_with_input<S: Serialize + Sized, T: Serialize + DeserializeOwned + Sized>(
         self,
         private_input: &S,
-        public_input: &T,
+        public_input: &T
     ) -> Result<(Self::View, Self::Proof), <Self as Prover>::Error> {
         let mut private_encoded = postcard::to_stdvec(&private_input).map_err(IOError::from)?;
         if !private_encoded.is_empty() {
@@ -168,8 +169,12 @@ impl Prover for Stwo<Local> {
             self.ad.as_slice(),
             public_encoded.as_slice(),
             private_encoded.as_slice(),
-            1,
+            1
         )?;
+        let view_bytes = postcard::to_allocvec(&view).expect("Failed to serialize proof");
+        println!("view hash {}", format!("{:x}", Keccak256::digest(&view_bytes)));
+        let trace_bytes = postcard::to_allocvec(&trace).expect("Failed to serialize proof");
+        println!("trace hash {}", format!("{:x}", Keccak256::digest(&trace_bytes)));
         let proof = nexus_core::stwo::prove(&trace, &view)?;
 
         Ok((
