@@ -16,7 +16,7 @@ pub fn create_fib_prover() -> Result<Stwo<Local>, TestError> {
 pub fn main() {
     match prov() {
         Ok(new_hash)=>{
-                 let hash= "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
+                 let hash: &'static str= "8ded59f2f60bf3899808927612d5b33bbe9bf28bbcee8e3a322f1257fdc84c81";
              if new_hash ==hash {
                  println!("equals");
              }else{
